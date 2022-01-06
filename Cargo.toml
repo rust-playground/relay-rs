@@ -1,20 +1,24 @@
 [package]
 name = "relay-rs"
+description = "A no nonsense ordered job runner with configurable backends for optionally persisted data"
 version = "0.1.0"
 edition = "2021"
-
+authors = ["Dean Karn <dean.karn@gmail.com>"]
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/rust-playground/relay-rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix-web = { version = "4.0.0-beta.18", default-features = false, features = ["compress-gzip"] }
+actix-web = { version = "4.0.0-beta.19", default-features = false, features = ["compress-gzip"] }
 anyhow = "1.0.52"
 async-stream = "0.3.2"
 async-trait = "0.1.52"
 chrono = { version = "0.4.19", features = ["serde"] }
-clap = { version = "3.0.0", features = ["derive", "env"] }
+clap = { version = "3.0.5", features = ["derive", "env"] }
 log = "0.4.14"
-serde = { version = "1.0.132", features = ["derive"] }
-serde_json = { version = "1.0.73", features = ["raw_value"] }
+serde = { version = "1.0.133", features = ["derive"] }
+serde_json = { version = "1.0.74", features = ["raw_value"] }
 thiserror = "1.0.30"
 tokio = { version = "1.15.0", features = ["rt-multi-thread", "net", "time","macros"] }
 tokio-stream = "0.1.8"

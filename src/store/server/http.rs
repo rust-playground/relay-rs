@@ -51,6 +51,45 @@ where
 }
 
 #[derive(Deserialize)]
+struct NextInfo {
+    queue: String,
+}
+
+async fn next<B>(data: web::Data<Data<B>>, info: web::Query<NextInfo>) -> HttpResponse
+where
+    B: Backing + Send + Sync,
+{
+    let result;
+    {
+        let mut lock = data.job_store.lock().await;
+        result = lock.borrow_mut().next(&info.queue).await;
+    }
+    match result {
+        Err(e) => match e {
+            MemoryStoreError::Backing(e) => {
+                increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
+                if e.is_retryable() {
+                    HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
+                } else {
+                    HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string())
+                }
+            }
+            _ => {
+                increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
+                HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string())
+            }
+        },
+        Ok(job) => match job {
+            None => HttpResponse::build(StatusCode::NO_CONTENT).finish(),
+            Some(job) => {
+                increment_counter!("next");
+                HttpResponse::build(StatusCode::OK).json(job)
+            }
+        },
+    }
+}
+
+#[derive(Deserialize)]
 struct HeartbeatInfo {
     queue: String,
     job_id: String,
@@ -82,6 +121,14 @@ where
             match e {
                 MemoryStoreError::JobNotFound { .. } => {
                     HttpResponse::build(StatusCode::NOT_FOUND).body(e.to_string())
+                }
+                MemoryStoreError::Backing(e) => {
+                    increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
+                    if e.is_retryable() {
+                        HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
+                    } else {
+                        HttpResponse::build(StatusCode::UNPROCESSABLE_ENTITY).body(e.to_string())
+                    }
                 }
                 _ => HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string()),
             }
@@ -129,35 +176,6 @@ where
             increment_counter!("complete");
             HttpResponse::build(StatusCode::OK).finish()
         }
-    }
-}
-
-#[derive(Deserialize)]
-struct NextInfo {
-    queue: String,
-}
-
-async fn next<B>(data: web::Data<Data<B>>, info: web::Query<NextInfo>) -> HttpResponse
-where
-    B: Backing + Send + Sync,
-{
-    let result;
-    {
-        let mut lock = data.job_store.lock().await;
-        result = lock.borrow_mut().next(&info.queue).await;
-    }
-    match result {
-        Err(e) => {
-            increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
-            HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string())
-        }
-        Ok(job) => match job {
-            None => HttpResponse::build(StatusCode::NO_CONTENT).finish(),
-            Some(job) => {
-                increment_counter!("next");
-                HttpResponse::build(StatusCode::OK).json(job)
-            }
-        },
     }
 }
 

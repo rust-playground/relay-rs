@@ -27,7 +27,7 @@ pub struct Job {
     #[serde(with = "duration_u64_serde")]
     pub timeout: Duration,
 
-    /// Determines how many time the Job can be retried, due to timeouts, before being considered
+    /// Determines how many times the Job can be retried, due to timeouts, before being considered
     /// permanently failed.
     #[serde(default)]
     pub max_retries: u8,
@@ -41,7 +41,7 @@ pub struct Job {
     /// The raw JSON payload that the job runner will receive.
     pub payload: Box<RawValue>,
 
-    /// The job state that can be persisted during heartbeat requests for progression based data
+    /// The raw JSON job state that can be persisted during heartbeat requests for progression based data
     /// used in the event of crash or failure. This is usually reserved for long-running jobs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state: Option<Box<RawValue>>,
