@@ -50,13 +50,13 @@ jobs:
         run: cargo test
 
       - name: Test SQlite
-          run: cargo test --features=prometheus_metrics,sqlite_backing
+        run: cargo test --features=prometheus_metrics,sqlite_backing
 
       - name: Test Postgres
-          run: cargo test --features=prometheus_metrics,postgres_backing
+        run: cargo test --features=prometheus_metrics,postgres_backing
 
       - name: Test Redis
-          run: cargo test --features=prometheus_metrics,redis_backing
+        run: cargo test --features=prometheus_metrics,redis_backing
 
       - name: Test DynamoDB
-          run: cargo test --features=prometheus_metrics,dynamodb_backing
+        run: cargo test --features=prometheus_metrics,dynamodb_backing
