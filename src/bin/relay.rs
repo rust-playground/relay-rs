@@ -58,7 +58,7 @@ async fn main() -> anyhow::Result<()> {
         Err(_) => env::set_var("RUST_LOG", "info"),
         Ok(v) => {
             if v.trim() == "" {
-                env::set_var("RUST_LOG", "info")
+                env::set_var("RUST_LOG", "info");
             }
         }
     };

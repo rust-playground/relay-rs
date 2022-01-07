@@ -25,8 +25,9 @@ where
         let mut lock = data.job_store.lock().await;
         result = lock.borrow_mut().enqueue(job.0).await;
     }
-    match result {
-        Err(e) => match e {
+
+    if let Err(e) = result {
+        match e {
             MemoryStoreError::JobExists { .. } => {
                 HttpResponse::build(StatusCode::CONFLICT).body(e.to_string())
             }
@@ -42,11 +43,10 @@ where
                 increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
                 HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string())
             }
-        },
-        Ok(_) => {
-            increment_counter!("enqueued");
-            HttpResponse::build(StatusCode::ACCEPTED).finish()
         }
+    } else {
+        increment_counter!("enqueued");
+        HttpResponse::build(StatusCode::ACCEPTED).finish()
     }
 }
 
@@ -65,20 +65,19 @@ where
         result = lock.borrow_mut().next(&info.queue).await;
     }
     match result {
-        Err(e) => match e {
-            MemoryStoreError::Backing(e) => {
+        Err(e) => {
+            if let MemoryStoreError::Backing(e) = e {
                 increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
                 if e.is_retryable() {
                     HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
                 } else {
                     HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string())
                 }
-            }
-            _ => {
+            } else {
                 increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
                 HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string())
             }
-        },
+        }
         Ok(job) => match job {
             None => HttpResponse::build(StatusCode::NO_CONTENT).finish(),
             Some(job) => {
@@ -115,28 +114,25 @@ where
             .touch(&info.queue, &info.job_id, state)
             .await;
     }
-    match result {
-        Err(e) => {
-            increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
-            match e {
-                MemoryStoreError::JobNotFound { .. } => {
-                    HttpResponse::build(StatusCode::NOT_FOUND).body(e.to_string())
-                }
-                MemoryStoreError::Backing(e) => {
-                    increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
-                    if e.is_retryable() {
-                        HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
-                    } else {
-                        HttpResponse::build(StatusCode::UNPROCESSABLE_ENTITY).body(e.to_string())
-                    }
-                }
-                _ => HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string()),
+    if let Err(e) = result {
+        increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
+        match e {
+            MemoryStoreError::JobNotFound { .. } => {
+                HttpResponse::build(StatusCode::NOT_FOUND).body(e.to_string())
             }
+            MemoryStoreError::Backing(e) => {
+                increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
+                if e.is_retryable() {
+                    HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
+                } else {
+                    HttpResponse::build(StatusCode::UNPROCESSABLE_ENTITY).body(e.to_string())
+                }
+            }
+            _ => HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string()),
         }
-        Ok(_) => {
-            increment_counter!("heartbeat");
-            HttpResponse::build(StatusCode::ACCEPTED).finish()
-        }
+    } else {
+        increment_counter!("heartbeat");
+        HttpResponse::build(StatusCode::ACCEPTED).finish()
     }
 }
 
@@ -153,29 +149,26 @@ where
     let result;
     {
         let mut lock = data.job_store.lock().await;
-        result = lock.borrow_mut().complete(&info.queue, &info.job_id).await
+        result = lock.borrow_mut().complete(&info.queue, &info.job_id).await;
     }
-    match result {
-        Err(e) => {
-            increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
-            match e {
-                MemoryStoreError::JobNotFound { .. } => {
-                    HttpResponse::build(StatusCode::NOT_FOUND).body(e.to_string())
-                }
-                MemoryStoreError::Backing(e) => {
-                    if e.is_retryable() {
-                        HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
-                    } else {
-                        HttpResponse::build(StatusCode::UNPROCESSABLE_ENTITY).body(e.to_string())
-                    }
-                }
-                _ => HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string()),
+    if let Err(e) = result {
+        increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
+        match e {
+            MemoryStoreError::JobNotFound { .. } => {
+                HttpResponse::build(StatusCode::NOT_FOUND).body(e.to_string())
             }
+            MemoryStoreError::Backing(e) => {
+                if e.is_retryable() {
+                    HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
+                } else {
+                    HttpResponse::build(StatusCode::UNPROCESSABLE_ENTITY).body(e.to_string())
+                }
+            }
+            _ => HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string()),
         }
-        Ok(_) => {
-            increment_counter!("complete");
-            HttpResponse::build(StatusCode::OK).finish()
-        }
+    } else {
+        increment_counter!("complete");
+        HttpResponse::build(StatusCode::OK).finish()
     }
 }
 
@@ -188,6 +181,15 @@ where
 
 impl Server {
     /// starts the HTTP server and waits for a shutdown signal before returning.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if the server fails to start.
+    ///
+    /// # Panics
+    ///
+    /// Will panic the reaper async thread fails, which can only happen if the timer and channel
+    /// both die.
     #[inline]
     pub async fn run<B>(memory_store: MemoryStore<B>, addr: &str) -> anyhow::Result<()>
     where
