@@ -44,7 +44,27 @@ jobs:
       - name: Lint
         uses: actions-rs/clippy@master
         with:
-          args: --all-features --all-targets
+          args: --all-targets
+
+      - name: Lint
+        uses: actions-rs/clippy@master
+        with:
+          args: --features=redis_backing --all-targets
+
+      - name: Lint
+        uses: actions-rs/clippy@master
+        with:
+          args: --features=postgres_backing --all-targets
+
+      - name: Lint
+        uses: actions-rs/clippy@master
+        with:
+          args: --features=sqlite_backing --all-targets
+
+      - name: Lint
+        uses: actions-rs/clippy@master
+        with:
+          args: --features=dynamodb_backing --all-targets
 
       - name: Test No Features
         run: cargo test
