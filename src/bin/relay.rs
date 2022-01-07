@@ -1,12 +1,10 @@
+#[allow(unused_imports)]
 use anyhow::Context;
 use clap::Parser;
-use metrics_util::MetricKindMask;
 use relay_rs::store::memory::backing;
 use relay_rs::store::memory::Store as MemoryStore;
 use relay_rs::store::server::http::Server;
 use std::env;
-use std::net::SocketAddr;
-use std::time::Duration;
 
 #[derive(Debug, Parser)]
 #[clap(version = env!("CARGO_PKG_VERSION"), author = env!("CARGO_PKG_AUTHORS"), about = env!("CARGO_PKG_DESCRIPTION"))]
@@ -74,12 +72,12 @@ async fn main() -> anyhow::Result<()> {
     metrics_exporter_prometheus::PrometheusBuilder::new()
         .listen_address(
             format!("0.0.0.0:{}", &opts.metrics_port)
-                .parse::<SocketAddr>()
+                .parse::<std::net::SocketAddr>()
                 .context("invalid prometheus address")?,
         )
         .idle_timeout(
-            MetricKindMask::COUNTER | MetricKindMask::HISTOGRAM,
-            Some(Duration::from_secs(30)),
+            metrics_util::MetricKindMask::COUNTER | metrics_util::MetricKindMask::HISTOGRAM,
+            Some(std::time::Duration::from_secs(30)),
         )
         .add_global_label("app", "relay_rs")
         .install()

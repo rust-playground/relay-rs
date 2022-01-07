@@ -159,7 +159,7 @@ impl Backing for Store {
         Box::pin(stream! {
 
             let unique_ids: Vec<String> =
-                    redis::cmd("ZRANGE").arg("__index__").arg(0 as isize).arg( -1 as isize)
+                    redis::cmd("ZRANGE").arg("__index__").arg(0).arg( -1)
                         .query_async(&mut self.connection_manager)
                         .await
                         .map_err(|e| Error::Recovery {

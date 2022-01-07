@@ -235,7 +235,7 @@ impl Backing for Store {
                             None => None,
                             Some(av) => match av {
                                 AttributeValue::S(data) => {
-                                    let job: Job = serde_json::from_str(&data).map_err(|e| Error::Recovery {
+                                    let job: Job = serde_json::from_str(data).map_err(|e| Error::Recovery {
                                         message: e.to_string(),
                                         is_retryable: false,
                                     })?;
