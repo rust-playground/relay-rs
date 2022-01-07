@@ -34,7 +34,7 @@ In this case the only arguments are part of the Body payload.
 | payload      | false    | The raw JSON payload that the job runner will receive.                                                                                                                                                                                               |
 | state        | false    | The raw JSON job state that can be persisted during heartbeat requests for progression based data used in the event of crash or failure. This is usually reserved for long-running jobs.                                                             |
 
-#### Body
+#### Request Body
 ```json
 {
   "id": "1",
@@ -48,7 +48,8 @@ In this case the only arguments are part of the Body payload.
 ```
 
 ### Response Codes
-NOTE: The body of th response will have more detail about the specific error.
+
+NOTE: The body of the response will have more detail about the specific error.
 
 | code  | description                                                                 |
 |-------|-----------------------------------------------------------------------------|
@@ -83,8 +84,8 @@ Some of the fiels May not be present such as `state` when none exists.
 }
 ```
 
-### Response Codes
-NOTE: The body of th response will have more detail about the specific error.
+#### Response Codes
+NOTE: The body of the response will have more detail about the specific error.
 
 | code | description                                                                        |
 |------|------------------------------------------------------------------------------------|
@@ -98,6 +99,7 @@ NOTE: The body of th response will have more detail about the specific error.
 ### `PATCH /v1/heartbeat`
 
 #### Arguments
+
 In this case the only arguments are query params.
 
 | argument | required | description                           |
@@ -110,7 +112,7 @@ Any JSON data. This payload is persisted in order to save application state.
 This is mostly used for long-running jobs to save point-in-time state in order
 to restart from that state if the Job is retried due to a crash or servie rollout.
 
-### Response Codes
+#### Response Codes
 NOTE: The body of th response will have more detail about the specific error.
 
 | code  | description                                                                |
@@ -125,6 +127,7 @@ NOTE: The body of th response will have more detail about the specific error.
 ### `DELETE /v1/complete`
 
 ### Arguments
+
 In this case the only arguments are query params.
 
 | argument | required | description                          |
@@ -133,7 +136,8 @@ In this case the only arguments are query params.
 | job_id   | true     | The Job ID to remove from the queue. |
 
 ### Response Codes
-NOTE: The body of th response will have more detail about the specific error.
+
+NOTE: The body of the response will have more detail about the specific error.
 
 | code  | description                                                                 |
 |-------|-----------------------------------------------------------------------------|
@@ -142,8 +146,6 @@ NOTE: The body of th response will have more detail about the specific error.
 | 404   | Job was not found for completing.                                           |
 | 422   | A permanent error has occurred.                                             |
 | 500   | An unknown error has occurred server side.                                  |
-
-
 
 #### License
 
