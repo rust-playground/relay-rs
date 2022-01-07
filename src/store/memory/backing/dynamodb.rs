@@ -24,16 +24,21 @@ const TIMESTAMP_KEY: &str = "timestamp";
 const DATA_KEY: &str = "data";
 const STATE_KEY: &str = "state";
 
-/// DynamoDB backing store
+/// `DynamoDB` backing store
 pub struct Store {
     client: Client,
     table: String,
 }
 
 impl Store {
-    /// Creates a new backing store with default settings for DynamoDB.
-    /// If region is set to `localhost` it will be configured to read from a local DynamoDB instance
+    /// Creates a new backing store with default settings for `DynamoDB`.
+    /// If region is set to `localhost` it will be configured to read from a local `DynamoDB` instance
     /// for local development and integration tests and table automatically created.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if initializing the `DynamoDB` Client fails or when running locally
+    /// fails to create the `DynamoDB` table.
     pub async fn default(region: String, table: String) -> anyhow::Result<Self> {
         let local = region == "localhost";
         let region_provider = RegionProviderChain::default_provider().or_else(Region::new(region));
@@ -57,19 +62,11 @@ impl Store {
     }
 
     async fn create_table(&self) -> anyhow::Result<()> {
-        let _ = self
-            .client
+        self.client
             .delete_table()
             .table_name(&self.table)
             .send()
-            .await
-            .map_err(|e| match e {
-                SdkError::ConstructionFailure(_) => {}
-                SdkError::TimeoutError(_) => {}
-                SdkError::DispatchFailure(_) => {}
-                SdkError::ResponseError { .. } => {}
-                SdkError::ServiceError { .. } => {}
-            });
+            .await?;
 
         let pk = KeySchemaElement::builder()
             .attribute_name(PK_KEY)
@@ -235,7 +232,7 @@ impl Backing for Store {
                             None => None,
                             Some(av) => match av {
                                 AttributeValue::S(data) => {
-                                    let job: Job = serde_json::from_str(&data).map_err(|e| Error::Recovery {
+                                    let job: Job = serde_json::from_str(data).map_err(|e| Error::Recovery {
                                         message: e.to_string(),
                                         is_retryable: false,
                                     })?;
@@ -332,9 +329,8 @@ fn is_retryable_scan(e: SdkError<ScanError>) -> bool {
 #[inline]
 fn is_retryable<E>(e: SdkError<E>) -> bool {
     match e {
-        SdkError::TimeoutError(_) => true,
+        SdkError::TimeoutError(_) | SdkError::ResponseError { .. } => true,
         SdkError::DispatchFailure(e) => e.is_timeout() || e.is_io(),
-        SdkError::ResponseError { .. } => true,
         _ => false,
     }
 }

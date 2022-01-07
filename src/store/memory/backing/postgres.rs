@@ -22,6 +22,10 @@ pub struct Store {
 
 impl Store {
     /// Creates a new backing store with default settings for Postgres.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if connecting the server or running migrations fails.
     #[inline]
     pub async fn default(uri: &str) -> Result<Self, sqlx::error::Error> {
         let options = PgConnectOptions::from_str(uri)?
@@ -32,6 +36,10 @@ impl Store {
     }
 
     /// Creates a new backing store with advanced options.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if connecting the server or running migrations fails.
     #[inline]
     pub async fn new(options: PgConnectOptions) -> Result<Self, sqlx::error::Error> {
         let pool = PgPool::connect_with(options).await?;

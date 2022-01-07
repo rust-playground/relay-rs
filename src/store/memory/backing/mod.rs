@@ -8,19 +8,19 @@ use tokio_stream::Stream;
 /// Noop backing store for when no backing store is needed.
 pub mod noop;
 
-/// Redis backing store
+/// `Redis` backing store
 #[cfg(feature = "redis_backing")]
 pub mod redis;
 
-/// SQLite backing store
+/// `SQLite` backing store
 #[cfg(feature = "sqlite_backing")]
 pub mod sqlite;
 
-/// DynamoDB backing store
+/// `DynamoDB` backing store
 #[cfg(feature = "dynamodb_backing")]
 pub mod dynamodb;
 
-/// Postgres backing store
+/// `Postgres` backing store
 #[cfg(feature = "postgres_backing")]
 pub mod postgres;
 
@@ -78,28 +78,31 @@ pub enum Error {
 impl Error {
     /// returns if the backing store error is retryable.
     #[inline]
+    #[must_use]
     pub fn is_retryable(&self) -> bool {
         match self {
-            Error::Push { is_retryable, .. } => *is_retryable,
-            Error::Remove { is_retryable, .. } => *is_retryable,
-            Error::Recovery { is_retryable, .. } => *is_retryable,
-            Error::Update { is_retryable, .. } => *is_retryable,
+            Error::Push { is_retryable, .. }
+            | Error::Remove { is_retryable, .. }
+            | Error::Recovery { is_retryable, .. }
+            | Error::Update { is_retryable, .. } => *is_retryable,
         }
     }
 
     /// returns if the backing store error is retryable.
     #[inline]
+    #[must_use]
     pub fn queue(&self) -> String {
         match self {
-            Error::Push { queue, .. } => queue.clone(),
-            Error::Remove { queue, .. } => queue.clone(),
+            Error::Push { queue, .. }
+            | Error::Remove { queue, .. }
+            | Error::Update { queue, .. } => queue.clone(),
             Error::Recovery { .. } => "".to_string(),
-            Error::Update { queue, .. } => queue.clone(),
         }
     }
 
     /// returns string interpretation of the error type
     #[inline]
+    #[must_use]
     pub fn error_type(&self) -> String {
         match self {
             Error::Push { .. } => "push".to_string(),

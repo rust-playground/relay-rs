@@ -14,7 +14,7 @@ use tokio::time::Instant;
 use tokio_stream::{Stream, StreamExt};
 use tracing::{debug, instrument};
 
-/// Contains the available backing stores for Jobs with persist_data = true.
+/// Contains the available backing stores for Jobs with `persist_data` = true.
 pub mod backing;
 
 struct QueuedJobs {
@@ -43,6 +43,11 @@ where
     B: Backing + Send + Sync,
 {
     /// Creates a new memory store for use.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if trying to recover any jobs from the backing store fails.
+    ///
     #[inline]
     pub async fn new(mut backing: B) -> Result<Self> {
         let mut jobs: HashMap<UniqueJob, StoredJob, RandomState> = HashMap::default();
@@ -65,12 +70,22 @@ where
     }
 
     /// Enqueues the provided Job.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if the `Job` is not found or there was an issue writing the `Job` to
+    /// the backing store fails
     #[inline]
     pub async fn enqueue(&mut self, job: Job) -> Result<()> {
         enqueue_in_memory(&mut self.backing, job, &mut self.jobs, &mut self.queue_jobs).await
     }
 
     /// Resets/Extends the timeout timestamp.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if the `Job` is not found or there was an issue updating the `Job` in
+    /// the backing store.
     #[inline]
     pub async fn touch(
         &mut self,
@@ -104,6 +119,11 @@ where
     }
 
     /// Marks the Job as complete and removes the the in-memory and persisted store.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if the `Job` is not found or there was an issue removing the `Job` from
+    /// the backing store.
     #[inline]
     pub async fn complete(&mut self, queue: &str, job_id: &str) -> Result<()> {
         let unique_id = format!("{}-{}", queue, job_id);
@@ -136,6 +156,10 @@ where
     }
 
     /// Retrieves the nex available Job or None if there are no Job yet available.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if the `Job` is not found.
     #[inline]
     pub async fn next(&mut self, queue: &str) -> Result<Option<Job>> {
         match self.queue_jobs.get_mut(queue) {
@@ -175,24 +199,28 @@ where
         let mut job_ids = Vec::new();
         let mut retries = 0;
 
-        for (_, v) in self.queue_jobs.iter_mut() {
+        for v in &mut self.queue_jobs.values_mut() {
             v.in_flight
                 .retain(|unique_id| match self.jobs.get_mut(unique_id) {
                     None => false,
                     Some(j) => {
-                        if j.heartbeat.unwrap().elapsed() > j.job.timeout {
-                            if j.job.max_retries == 0 || j.retries > j.job.max_retries {
-                                job_ids.push((unique_id.clone(), j.job.queue.clone()));
-                                true
+                        if let Some(heartbeat) = j.heartbeat {
+                            if heartbeat.elapsed() > j.job.timeout {
+                                if j.job.max_retries == 0 || j.retries > j.job.max_retries {
+                                    job_ids.push((unique_id.clone(), j.job.queue.clone()));
+                                    true
+                                } else {
+                                    j.retries += 1;
+                                    j.heartbeat = None;
+                                    v.jobs.push_front(j.job.id.clone());
+                                    retries += 1;
+                                    false
+                                }
                             } else {
-                                j.retries += 1;
-                                j.heartbeat = None;
-                                v.jobs.push_front(j.job.id.clone());
-                                retries += 1;
-                                false
+                                true
                             }
                         } else {
-                            true
+                            false
                         }
                     }
                 });
@@ -265,7 +293,7 @@ where
                     dv.push_back(job.id.clone());
                     v.insert(QueuedJobs {
                         jobs: dv,
-                        in_flight: Default::default(),
+                        in_flight: HashSet::default(),
                     });
                 }
             };
@@ -308,16 +336,18 @@ pub enum Error {
 
 impl Error {
     #[inline]
+    #[must_use]
     pub fn queue(&self) -> String {
         match self {
-            Error::JobExists { queue, .. } => queue.clone(),
-            Error::JobNotFound { queue, .. } => queue.clone(),
+            Error::JobExists { queue, .. }
+            | Error::JobNotFound { queue, .. }
+            | Error::Reaper { queue, .. } => queue.clone(),
             Error::Backing(e) => e.queue(),
-            Error::Reaper { queue, .. } => queue.clone(),
         }
     }
 
     #[inline]
+    #[must_use]
     pub fn error_type(&self) -> String {
         match self {
             Error::JobExists { .. } => "job_exists".to_string(),

@@ -14,13 +14,17 @@ use std::{str::FromStr, time::Duration};
 use tokio_stream::{Stream, StreamExt};
 use tracing::error;
 
-/// SQLite backing store
+/// `SQLite` backing store
 pub struct Store {
     pool: Pool<Sqlite>,
 }
 
 impl Store {
-    /// Creates a new backing store with default settings for SQLite.
+    /// Creates a new backing store with default settings for `SQLite`.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if connecting to the `SQLite` database fails or migrations fail to run.
     #[inline]
     pub async fn default(uri: &str) -> Result<Self, sqlx::error::Error> {
         let options = SqliteConnectOptions::from_str(uri)?
@@ -32,6 +36,10 @@ impl Store {
     }
 
     /// Creates a new backing store with advanced options.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if connecting to the `SQLite` database fails or migrations fail to run.
     #[inline]
     pub async fn new(options: SqliteConnectOptions) -> Result<Self, sqlx::error::Error> {
         let pool = SqlitePool::connect_with(options).await?;

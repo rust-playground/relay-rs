@@ -17,6 +17,10 @@ pub struct Store {
 
 impl Store {
     /// Creates a new backing store with default settings for Redis.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if connecting to the server fails.
     pub async fn default(uri: &str) -> Result<Self, RedisError> {
         let client = Client::open(uri)?;
         let connection_manager = client.get_tokio_connection_manager().await?;
@@ -38,7 +42,7 @@ impl Backing for Store {
                 job_id: job.id.clone(),
                 queue: job.queue.clone(),
                 message: e.to_string(),
-                is_retryable: is_retryable(e),
+                is_retryable: is_retryable(&e),
             })?;
         if exists {
             return Err(Error::Push {
@@ -73,7 +77,7 @@ impl Backing for Store {
                 job_id: job.id.clone(),
                 queue: job.queue.clone(),
                 message: e.to_string(),
-                is_retryable: is_retryable(e),
+                is_retryable: is_retryable(&e),
             })?;
 
         Ok(())
@@ -98,7 +102,7 @@ impl Backing for Store {
                 job_id: job.id.clone(),
                 queue: job.queue.clone(),
                 message: e.to_string(),
-                is_retryable: is_retryable(e),
+                is_retryable: is_retryable(&e),
             })?;
 
         Ok(())
@@ -121,7 +125,7 @@ impl Backing for Store {
                 job_id: job_id.to_string(),
                 queue: queue.to_string(),
                 message: e.to_string(),
-                is_retryable: is_retryable(e),
+                is_retryable: is_retryable(&e),
             })?;
 
         let mut job: Job = serde_json::from_str(&data).map_err(|e| Error::Update {
@@ -148,7 +152,7 @@ impl Backing for Store {
                 job_id: job_id.to_string(),
                 queue: queue.to_string(),
                 message: e.to_string(),
-                is_retryable: is_retryable(e),
+                is_retryable: is_retryable(&e),
             })?;
 
         Ok(())
@@ -159,18 +163,18 @@ impl Backing for Store {
         Box::pin(stream! {
 
             let unique_ids: Vec<String> =
-                    redis::cmd("ZRANGE").arg("__index__").arg(0 as isize).arg( -1 as isize)
+                    redis::cmd("ZRANGE").arg("__index__").arg(0).arg( -1)
                         .query_async(&mut self.connection_manager)
                         .await
                         .map_err(|e| Error::Recovery {
                             message: e.to_string(),
-                            is_retryable: is_retryable(e),
+                            is_retryable: is_retryable(&e),
                         })?;
 
             for unique_id in unique_ids {
                 let s: String = redis::cmd("GET").arg(&unique_id).query_async(&mut self.connection_manager).await.map_err(|e| Error::Recovery {
                     message: e.to_string(),
-                    is_retryable: is_retryable(e),
+                    is_retryable: is_retryable(&e),
                 })?;
                 let job: Job = serde_json::from_str(&s).map_err(|e| Error::Recovery {
                     message: e.to_string(),
@@ -183,7 +187,7 @@ impl Backing for Store {
 }
 
 #[inline]
-fn is_retryable(e: RedisError) -> bool {
+fn is_retryable(e: &RedisError) -> bool {
     match e.kind() {
         ErrorKind::BusyLoadingError | ErrorKind::TryAgain => true,
         ErrorKind::IoError => e.is_timeout() || e.is_connection_dropped(),
