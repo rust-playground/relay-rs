@@ -41,42 +41,42 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Lint
+      - name: Lint Metrics Only
         uses: actions-rs/clippy@master
         with:
-          args: --all-targets
+          args: --features=prometheus_metrics --all-targets
 
-      - name: Lint
+      - name: Lint Redis
         uses: actions-rs/clippy@master
         with:
           args: --features=redis_backing --all-targets
 
-      - name: Lint
+      - name: Lint Postgres
         uses: actions-rs/clippy@master
         with:
           args: --features=postgres_backing --all-targets
 
-      - name: Lint
+      - name: Lint SQLite
         uses: actions-rs/clippy@master
         with:
           args: --features=sqlite_backing --all-targets
 
-      - name: Lint
+      - name: Lint DynamoDB
         uses: actions-rs/clippy@master
         with:
           args: --features=dynamodb_backing --all-targets
 
-      - name: Test No Features
-        run: cargo test
+      - name: Test Metrics Only
+        run: cargo test --features=prometheus_metrics
 
       - name: Test SQlite
-        run: cargo test --features=prometheus_metrics,sqlite_backing
+        run: cargo test --features=sqlite_backing
 
       - name: Test Postgres
-        run: cargo test --features=prometheus_metrics,postgres_backing
+        run: cargo test --features=postgres_backing
 
       - name: Test Redis
-        run: cargo test --features=prometheus_metrics,redis_backing
+        run: cargo test --features=redis_backing
 
       - name: Test DynamoDB
-        run: cargo test --features=prometheus_metrics,dynamodb_backing
+        run: cargo test --features=dynamodb_backing
