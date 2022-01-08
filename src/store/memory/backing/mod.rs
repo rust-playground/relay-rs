@@ -26,15 +26,10 @@ pub mod postgres;
 
 #[async_trait]
 pub trait Backing {
-    async fn push(&mut self, job: &Job) -> Result<()>;
-    async fn remove(&mut self, job: &Job) -> Result<()>;
-    async fn update(
-        &mut self,
-        queue: &str,
-        job_id: &str,
-        state: &Option<Box<RawValue>>,
-    ) -> Result<()>;
-    fn recover(&mut self) -> Pin<Box<dyn Stream<Item = Result<Job>> + '_>>;
+    async fn push(&self, job: &Job) -> Result<()>;
+    async fn remove(&self, job: &Job) -> Result<()>;
+    async fn update(&self, queue: &str, job_id: &str, state: &Option<Box<RawValue>>) -> Result<()>;
+    fn recover(&self) -> Pin<Box<dyn Stream<Item = Result<Job>> + '_>>;
 }
 
 /// Backing Result type

@@ -8,7 +8,6 @@ pub mod memory;
 /// The server types which Jobs can be used with.
 pub mod server;
 
-type UniqueJob = String;
 type Queue = String;
 type JobID = String;
 

@@ -12,18 +12,18 @@ pub struct Store;
 #[async_trait]
 impl Backing for Store {
     #[inline]
-    async fn push(&mut self, _job: &Job) -> super::Result<()> {
+    async fn push(&self, _job: &Job) -> super::Result<()> {
         Ok(())
     }
 
     #[inline]
-    async fn remove(&mut self, _job: &Job) -> super::Result<()> {
+    async fn remove(&self, _job: &Job) -> super::Result<()> {
         Ok(())
     }
 
     #[inline]
     async fn update(
-        &mut self,
+        &self,
         _queue: &str,
         _job_id: &str,
         _state: &Option<Box<RawValue>>,
@@ -32,7 +32,7 @@ impl Backing for Store {
     }
 
     #[inline]
-    fn recover(&mut self) -> Pin<Box<dyn Stream<Item = super::Result<Job>> + '_>> {
+    fn recover(&self) -> Pin<Box<dyn Stream<Item = super::Result<Job>> + '_>> {
         Box::pin(tokio_stream::empty())
     }
 }
