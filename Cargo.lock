@@ -695,7 +695,6 @@ dependencies = [
  "libc",
  "num-integer",
  "num-traits",
- "serde",
  "time 0.1.44",
  "winapi",
 ]
@@ -2132,31 +2131,111 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f497285884f3fcff424ffc933e56d7cbca511def0c9831a7f9b5f6153e3cc89b"
 
 [[package]]
-name = "relay-rs"
+name = "relay"
 version = "0.1.0"
 dependencies = [
- "actix-web",
  "ahash",
+ "async-stream",
+ "async-trait",
+ "metrics",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+]
+
+[[package]]
+name = "relay-backing-dynamodb"
+version = "0.1.0"
+dependencies = [
  "anyhow",
  "async-stream",
  "async-trait",
  "aws-config",
  "aws-sdk-dynamodb",
  "chrono",
- "clap",
+ "http",
+ "relay",
+ "serde_json",
+ "tokio-stream",
+]
+
+[[package]]
+name = "relay-backing-postgres"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "chrono",
  "log",
- "metrics",
- "metrics-exporter-prometheus",
- "metrics-util",
- "redis",
- "serde",
+ "relay",
  "serde_json",
  "sqlx",
- "thiserror",
+ "tokio-stream",
+ "tracing",
+]
+
+[[package]]
+name = "relay-backing-redis"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "chrono",
+ "redis",
+ "relay",
+ "serde_json",
+ "tokio-stream",
+]
+
+[[package]]
+name = "relay-backing-sqlite"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "chrono",
+ "log",
+ "relay",
+ "serde_json",
+ "sqlx",
+ "tokio-stream",
+ "tracing",
+]
+
+[[package]]
+name = "relay-bin"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "metrics-exporter-prometheus",
+ "metrics-util",
+ "relay",
+ "relay-backing-dynamodb",
+ "relay-backing-postgres",
+ "relay-backing-redis",
+ "relay-backing-sqlite",
+ "relay-server-http",
+ "tokio",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "relay-server-http"
+version = "0.1.0"
+dependencies = [
+ "actix-web",
+ "anyhow",
+ "metrics",
+ "relay",
+ "serde",
+ "serde_json",
  "tokio",
  "tokio-stream",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

@@ -1,6 +1,9 @@
+/// Contains the available backing traits for persisting Jobs.
+pub mod backing;
+
 use super::Job;
 use super::{JobID, Queue};
-use crate::store::memory::backing::noop;
+use crate::memory_store::backing::noop;
 use ahash::RandomState;
 use async_stream::stream;
 use backing::{Backing, Error as BackingError};
@@ -14,16 +17,6 @@ use tokio::sync::{Mutex, RwLock};
 use tokio::time::Instant;
 use tokio_stream::{Stream, StreamExt};
 use tracing::{debug, instrument};
-
-/// Contains the available backing stores for Jobs with `persist_data` = true.
-pub mod backing;
-
-// ultimately we're trying to accomplish:
-// RWMutex<Queue<Mutex<Jobs>>>>
-//
-// So the Memory Store would own what portion? ultimately all of it! Make it handle all using interior mutability.
-// This also has the advantage of detaching lock scoping from the transfer medium eg. HTTP
-//
 
 type Queues = HashMap<Queue, Mutex<QueueState>, RandomState>;
 

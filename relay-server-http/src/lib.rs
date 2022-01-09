@@ -1,10 +1,10 @@
-use crate::store::memory::backing::Backing;
-use crate::store::memory::{Error as MemoryStoreError, Store as MemoryStore};
-use crate::store::Job;
 use actix_web::http::StatusCode;
 use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpResponse, HttpServer};
 use metrics::{counter, increment_counter};
+use relay::memory_store::backing::Backing;
+use relay::memory_store::{Error, Store};
+use relay::Job;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use std::time::Duration;
@@ -21,10 +21,10 @@ where
 {
     if let Err(e) = data.job_store.enqueue(job.0).await {
         match e {
-            MemoryStoreError::JobExists { .. } => {
+            Error::JobExists { .. } => {
                 HttpResponse::build(StatusCode::CONFLICT).body(e.to_string())
             }
-            MemoryStoreError::Backing(e) => {
+            Error::Backing(e) => {
                 increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
                 if e.is_retryable() {
                     HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
@@ -54,7 +54,7 @@ where
 {
     match data.job_store.next(&info.queue).await {
         Err(e) => {
-            if let MemoryStoreError::Backing(e) = e {
+            if let Error::Backing(e) = e {
                 increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
                 if e.is_retryable() {
                     HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
@@ -97,10 +97,10 @@ where
     if let Err(e) = data.job_store.touch(&info.queue, &info.job_id, state).await {
         increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
         match e {
-            MemoryStoreError::JobNotFound { .. } => {
+            Error::JobNotFound { .. } => {
                 HttpResponse::build(StatusCode::NOT_FOUND).body(e.to_string())
             }
-            MemoryStoreError::Backing(e) => {
+            Error::Backing(e) => {
                 increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
                 if e.is_retryable() {
                     HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
@@ -129,10 +129,10 @@ where
     if let Err(e) = data.job_store.complete(&info.queue, &info.job_id).await {
         increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
         match e {
-            MemoryStoreError::JobNotFound { .. } => {
+            Error::JobNotFound { .. } => {
                 HttpResponse::build(StatusCode::NOT_FOUND).body(e.to_string())
             }
-            MemoryStoreError::Backing(e) => {
+            Error::Backing(e) => {
                 if e.is_retryable() {
                     HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
                 } else {
@@ -151,7 +151,7 @@ struct Data<B>
 where
     B: Backing + Send + Sync,
 {
-    job_store: MemoryStore<B>,
+    job_store: Store<B>,
 }
 
 impl Server {
@@ -166,7 +166,7 @@ impl Server {
     /// Will panic the reaper async thread fails, which can only happen if the timer and channel
     /// both die.
     #[inline]
-    pub async fn run<B>(memory_store: MemoryStore<B>, addr: &str) -> anyhow::Result<()>
+    pub async fn run<B>(memory_store: Store<B>, addr: &str) -> anyhow::Result<()>
     where
         B: Backing + Send + Sync + 'static,
     {

@@ -1,12 +1,14 @@
+//! # `relay`
+//!
+//! This crate contains all common data structures and traits.
+//!
+
+/// The internal memory store used for storing and serving Jobs.
+pub mod memory_store;
+
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::time::Duration;
-
-/// The internal memory store used for storing and serving Jobs.
-pub mod memory;
-
-/// The server types which Jobs can be used with.
-pub mod server;
 
 type Queue = String;
 type JobID = String;

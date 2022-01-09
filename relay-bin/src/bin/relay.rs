@@ -1,9 +1,8 @@
 #[allow(unused_imports)]
 use anyhow::Context;
 use clap::Parser;
-use relay_rs::store::memory::backing;
-use relay_rs::store::memory::Store as MemoryStore;
-use relay_rs::store::server::http::Server;
+use relay::memory_store::Store;
+use relay_server_http::Server;
 use std::env;
 
 #[derive(Debug, Parser)]
@@ -14,17 +13,17 @@ pub struct Opts {
     pub server_port: String,
 
     /// Metrics Port to bind to.
-    #[cfg(feature = "prometheus_metrics")]
+    #[cfg(feature = "metrics-prometheus")]
     #[clap(long, default_value = "5001", env = "METRICS_PORT")]
     pub metrics_port: String,
 
     /// DATABASE_URL to connect to.
-    #[cfg(feature = "sqlite_backing")]
+    #[cfg(feature = "backing-sqlite")]
     #[clap(short, long, default_value = "test.jobs.db", env = "DATABASE_URL")]
     pub database_url: String,
 
     /// DATABASE_URL to connect to.
-    #[cfg(feature = "redis_backing")]
+    #[cfg(feature = "backing-redis")]
     #[clap(
         short,
         long,
@@ -34,7 +33,7 @@ pub struct Opts {
     pub database_url: String,
 
     /// DATABASE_URL to connect to.
-    #[cfg(feature = "postgres_backing")]
+    #[cfg(feature = "backing-postgres")]
     #[clap(
         short,
         long,
@@ -43,11 +42,11 @@ pub struct Opts {
     )]
     pub database_url: String,
 
-    #[cfg(feature = "dynamodb_backing")]
+    #[cfg(feature = "backing-dynamodb")]
     #[clap(long, default_value = "localhost", env = "AWS_REGION")]
     pub region: String,
 
-    #[cfg(feature = "dynamodb_backing")]
+    #[cfg(feature = "backing-dynamodb")]
     #[clap(long, default_value = "relay_backing", env = "TABLE")]
     pub table: String,
 }
@@ -68,7 +67,7 @@ async fn main() -> anyhow::Result<()> {
 
     let opts: Opts = Opts::parse();
 
-    #[cfg(feature = "prometheus_metrics")]
+    #[cfg(feature = "metrics-prometheus")]
     metrics_exporter_prometheus::PrometheusBuilder::new()
         .listen_address(
             format!("0.0.0.0:{}", &opts.metrics_port)
@@ -84,26 +83,26 @@ async fn main() -> anyhow::Result<()> {
         .context("failed to install Prometheus recorder")?;
 
     #[cfg(not(any(
-        feature = "sqlite_backing",
-        feature = "postgres_backing",
-        feature = "redis_backing",
-        feature = "dynamodb_backing"
+        feature = "backing-sqlite",
+        feature = "backing-postgres",
+        feature = "backing-redis",
+        feature = "backing-dynamodb"
     )))]
-    let backing = backing::noop::Store::default();
+    let backing = relay::memory_store::backing::noop::Store::default();
 
-    #[cfg(feature = "sqlite_backing")]
-    let backing = backing::sqlite::Store::default(&opts.database_url).await?;
+    #[cfg(feature = "backing-sqlite")]
+    let backing = relay_backing_sqlite::Store::default(&opts.database_url).await?;
 
-    #[cfg(feature = "postgres_backing")]
-    let backing = backing::postgres::Store::default(&opts.database_url).await?;
+    #[cfg(feature = "backing-postgres")]
+    let backing = relay_backing_postgres::Store::default(&opts.database_url).await?;
 
-    #[cfg(feature = "redis_backing")]
-    let backing = backing::redis::Store::default(&opts.database_url).await?;
+    #[cfg(feature = "backing-redis")]
+    let backing = relay_backing_redis::Store::default(&opts.database_url).await?;
 
-    #[cfg(feature = "dynamodb_backing")]
-    let backing = backing::dynamodb::Store::default(opts.region, opts.table).await?;
+    #[cfg(feature = "backing-dynamodb")]
+    let backing = relay_backing_dynamodb::Store::default(opts.region, opts.table).await?;
 
-    let memory_store = MemoryStore::new(backing).await?;
+    let memory_store = Store::new(backing).await?;
 
     Server::run(memory_store, &format!("0.0.0.0:{}", opts.server_port)).await
 }

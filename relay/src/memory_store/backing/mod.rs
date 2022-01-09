@@ -1,28 +1,12 @@
-use crate::store::Job;
+/// Noop backing store for when no backing store is needed.
+pub mod noop;
+
+use crate::Job;
 use async_trait::async_trait;
 use serde_json::value::RawValue;
 use std::pin::Pin;
 use thiserror::Error;
 use tokio_stream::Stream;
-
-/// Noop backing store for when no backing store is needed.
-pub mod noop;
-
-/// `Redis` backing store
-#[cfg(feature = "redis_backing")]
-pub mod redis;
-
-/// `SQLite` backing store
-#[cfg(feature = "sqlite_backing")]
-pub mod sqlite;
-
-/// `DynamoDB` backing store
-#[cfg(feature = "dynamodb_backing")]
-pub mod dynamodb;
-
-/// `Postgres` backing store
-#[cfg(feature = "postgres_backing")]
-pub mod postgres;
 
 #[async_trait]
 pub trait Backing {
