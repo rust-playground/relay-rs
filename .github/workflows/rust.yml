@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --all-features
+      - run: cargo test --all-features --all-targets --workspace --exclude=relay-bin
 
   build:
     strategy:
@@ -21,7 +21,11 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo check --all-features
+      - run: cargo check --all-features --all-targets --workspace --exclude=relay-bin
+      - run: cargo check -p relay-bin --all-targets --features=metrics-prometheus,backing-redis
+      - run: cargo check -p relay-bin --all-targets --features=metrics-prometheus,backing-postgres
+      - run: cargo check -p relay-bin --all-targets --features=metrics-prometheus,backing-sqlite
+      - run: cargo check -p relay-bin --all-targets --features=metrics-prometheus,backing-dynamodb
 
   clippy:
     name: Clippy
@@ -29,4 +33,8 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@clippy
-      - run: cargo clippy --all-features --tests -- -Dclippy::all -Dclippy::pedantic
+      - run: cargo clippy --all-features --tests --workspace --exclude relay-bin -- -Dclippy::all -Dclippy::pedantic
+      - run: cargo clippy -p relay-bin --tests --features=metrics-prometheus,backing-redis -- -Dclippy::all -Dclippy::pedantic
+      - run: cargo clippy -p relay-bin --tests --features=metrics-prometheus,backing-postgres -- -Dclippy::all -Dclippy::pedantic
+      - run: cargo clippy -p relay-bin --tests --features=metrics-prometheus,backing-sqlite -- -Dclippy::all -Dclippy::pedantic
+      - run: cargo clippy -p relay-bin --tests --features=metrics-prometheus,backing-dynamodb -- -Dclippy::all -Dclippy::pedantic

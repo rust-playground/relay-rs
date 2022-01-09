@@ -2212,6 +2212,7 @@ dependencies = [
  "anyhow",
  "clap",
  "metrics-exporter-prometheus",
+ "metrics-util",
  "relay",
  "relay-backing-dynamodb",
  "relay-backing-postgres",

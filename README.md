@@ -1,20 +1,20 @@
 # relay-rs
 
-This crate contains a no nonsense ordered job runner with configurable backends for optionally persisted data.
+This crate contains a no nonsense ordered job runner with configurable backends for optional backing storage, metrics and servers to host.
 
 ### Features
 Optional features:
-- [`prometheus_metrics`][]: Enables emitting of Prometheus metrics via a scraping endpoint.
-- [`sqlite_backing`][]: Enables an SQLite backed persistent store to handle crashes/restarts..
-- [`postgres_backing`][]: Enables a Postgres backed persistent store to handle crashes/restarts.
-- [`redis_backing`][]: Enables a Redis backed persistent store to handle crashes/restarts.
-- [`dynamodb_backing`][]: Enables an DynamoDB backed persistent store to handle crashes/restarts.
+- [`metrics-prometheus`][]: Enables emitting of Prometheus metrics via a scraping endpoint.
+- [`backing-sqlite`][]: Enables an SQLite backed persistent store to handle crashes/restarts..
+- [`backing-postgres`][]: Enables a Postgres backed persistent store to handle crashes/restarts.
+- [`backing-redis`][]: Enables a Redis backed persistent store to handle crashes/restarts.
+- [`backing-dynamodb`][]: Enables an DynamoDB backed persistent store to handle crashes/restarts.
 
-[`prometheus_metrics`]: https://crates.io/crates/metrics-exporter-prometheus
-[`sqlite_backing`]: https://crates.io/crates/sqlx
-[`postgres_backing`]: https://crates.io/crates/sqlx
-[`redis_backing`]: https://crates.io/crates/redis
-[`dynamodb_backing`]: https://crates.io/crates/aws-sdk-dynamodb
+[`metrics-prometheus`]: https://crates.io/crates/metrics-exporter-prometheus
+[`backing-sqlite`]: https://crates.io/crates/sqlx
+[`backing-postgres`]: https://crates.io/crates/sqlx
+[`backing-redis`]: https://crates.io/crates/redis
+[`backing-dynamodb`]: https://crates.io/crates/aws-sdk-dynamodb
 
 
 ## API
