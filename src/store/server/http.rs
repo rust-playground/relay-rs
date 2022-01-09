@@ -196,7 +196,7 @@ impl Server {
                                     },
                                     Ok(job)=>{
                                         timeouts+=1;
-                                        warn!("job failed and reached it's max attempts on queue: {} with job id: {}", job.queue, job.id);
+                                        warn!("job failed after reaching it's max {} attempt(s) on queue: {} with job id: {}", job.max_retries, job.queue, job.id);
                                     }
                                 };
 
