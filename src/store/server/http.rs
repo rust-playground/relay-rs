@@ -7,9 +7,8 @@ use actix_web::{web, App, HttpResponse, HttpServer};
 use metrics::{counter, increment_counter};
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use std::borrow::BorrowMut;
 use std::time::Duration;
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::oneshot;
 use tokio_stream::StreamExt;
 use tracing::{error, info, warn};
 
@@ -20,13 +19,7 @@ async fn enqueue<B>(data: web::Data<Data<B>>, job: web::Json<Job>) -> HttpRespon
 where
     B: Backing + Send + Sync,
 {
-    let result;
-    {
-        let mut lock = data.job_store.lock().await;
-        result = lock.borrow_mut().enqueue(job.0).await;
-    }
-
-    if let Err(e) = result {
+    if let Err(e) = data.job_store.enqueue(job.0).await {
         match e {
             MemoryStoreError::JobExists { .. } => {
                 HttpResponse::build(StatusCode::CONFLICT).body(e.to_string())
@@ -59,12 +52,7 @@ async fn next<B>(data: web::Data<Data<B>>, info: web::Query<NextInfo>) -> HttpRe
 where
     B: Backing + Send + Sync,
 {
-    let result;
-    {
-        let mut lock = data.job_store.lock().await;
-        result = lock.borrow_mut().next(&info.queue).await;
-    }
-    match result {
+    match data.job_store.next(&info.queue).await {
         Err(e) => {
             if let MemoryStoreError::Backing(e) = e {
                 increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
@@ -106,15 +94,7 @@ where
         None => None,
         Some(state) => Some(state.0),
     };
-    let result;
-    {
-        let mut lock = data.job_store.lock().await;
-        result = lock
-            .borrow_mut()
-            .touch(&info.queue, &info.job_id, state)
-            .await;
-    }
-    if let Err(e) = result {
+    if let Err(e) = data.job_store.touch(&info.queue, &info.job_id, state).await {
         increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
         match e {
             MemoryStoreError::JobNotFound { .. } => {
@@ -146,12 +126,7 @@ async fn complete<B>(data: web::Data<Data<B>>, info: web::Query<CompleteInfo>) -
 where
     B: Backing + Send + Sync,
 {
-    let result;
-    {
-        let mut lock = data.job_store.lock().await;
-        result = lock.borrow_mut().complete(&info.queue, &info.job_id).await;
-    }
-    if let Err(e) = result {
+    if let Err(e) = data.job_store.complete(&info.queue, &info.job_id).await {
         increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
         match e {
             MemoryStoreError::JobNotFound { .. } => {
@@ -176,7 +151,7 @@ struct Data<B>
 where
     B: Backing + Send + Sync,
 {
-    job_store: Mutex<MemoryStore<B>>,
+    job_store: MemoryStore<B>,
 }
 
 impl Server {
@@ -196,7 +171,7 @@ impl Server {
         B: Backing + Send + Sync + 'static,
     {
         let store = web::Data::new(Data {
-            job_store: Mutex::new(memory_store),
+            job_store: memory_store,
         });
 
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
@@ -211,8 +186,8 @@ impl Server {
                     _ = interval.tick() => {
                         let mut timeouts = 0;
                         {
-                            let mut lock = reaper_store.job_store.lock().await;
-                            let mut stream = lock.borrow_mut().reap_timeouts();
+                            let  stream = reaper_store.job_store.reap_timeouts().await;
+                            tokio::pin!(stream);
 
                             while let Some(result)= stream.next().await{
                                 match result {
@@ -221,7 +196,7 @@ impl Server {
                                     },
                                     Ok(job)=>{
                                         timeouts+=1;
-                                        warn!("job failed and reached it's max attempts on queue: {} with job id: {}", job.queue, job.id);
+                                        warn!("job failed after reaching it's max {} attempt(s) on queue: {} with job id: {}", job.max_retries, job.queue, job.id);
                                     }
                                 };
 

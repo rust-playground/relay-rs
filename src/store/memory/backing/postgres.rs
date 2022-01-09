@@ -55,7 +55,7 @@ impl Store {
 #[async_trait]
 impl Backing for Store {
     #[inline]
-    async fn push(&mut self, job: &Job) -> super::Result<()> {
+    async fn push(&self, job: &Job) -> super::Result<()> {
         let now = Utc::now();
 
         let mut conn = self.pool.acquire().await.map_err(|e| Error::Push {
@@ -81,7 +81,7 @@ impl Backing for Store {
     }
 
     #[inline]
-    async fn remove(&mut self, job: &Job) -> super::Result<()> {
+    async fn remove(&self, job: &Job) -> super::Result<()> {
         let mut conn = self.pool.acquire().await.map_err(|e| Error::Remove {
             job_id: job.id.clone(),
             queue: job.queue.clone(),
@@ -104,7 +104,7 @@ impl Backing for Store {
 
     #[inline]
     async fn update(
-        &mut self,
+        &self,
         queue: &str,
         job_id: &str,
         state: &Option<Box<RawValue>>,
@@ -150,7 +150,7 @@ impl Backing for Store {
     }
 
     #[inline]
-    fn recover(&'_ mut self) -> Pin<Box<dyn Stream<Item = super::Result<Job>> + '_>> {
+    fn recover(&'_ self) -> Pin<Box<dyn Stream<Item = super::Result<Job>> + '_>> {
         Box::pin(stream! {
             let mut conn = self.pool.acquire().await.map_err(|e| Error::Recovery {
                 message: e.to_string(),

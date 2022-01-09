@@ -93,7 +93,7 @@ impl Store {
 
 #[async_trait]
 impl Backing for Store {
-    async fn push(&mut self, job: &Job) -> super::Result<()> {
+    async fn push(&self, job: &Job) -> super::Result<()> {
         let data = serde_json::to_string(&job).map_err(|e| Error::Push {
             job_id: job.id.clone(),
             queue: job.queue.clone(),
@@ -129,7 +129,7 @@ impl Backing for Store {
         Ok(())
     }
 
-    async fn remove(&mut self, job: &Job) -> super::Result<()> {
+    async fn remove(&self, job: &Job) -> super::Result<()> {
         self.client
             .delete_item()
             .table_name(&self.table)
@@ -149,7 +149,7 @@ impl Backing for Store {
     }
 
     async fn update(
-        &mut self,
+        &self,
         queue: &str,
         job_id: &str,
         state: &Option<Box<RawValue>>,
@@ -193,7 +193,7 @@ impl Backing for Store {
         Ok(())
     }
 
-    fn recover(&mut self) -> Pin<Box<dyn Stream<Item = super::Result<Job>> + '_>> {
+    fn recover(&self) -> Pin<Box<dyn Stream<Item = super::Result<Job>> + '_>> {
         Box::pin(stream! {
             struct SortableJobs {
                 job: Job,

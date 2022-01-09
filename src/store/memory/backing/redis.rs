@@ -4,7 +4,6 @@ use super::Job;
 use async_stream::stream;
 use async_trait::async_trait;
 use chrono::Utc;
-use redis::aio::ConnectionManager;
 use redis::{Client, ErrorKind, RedisError};
 use serde_json::value::RawValue;
 use std::pin::Pin;
@@ -12,7 +11,7 @@ use tokio_stream::Stream;
 
 /// Redis backing store
 pub struct Store {
-    connection_manager: ConnectionManager,
+    client: Client,
 }
 
 impl Store {
@@ -23,20 +22,32 @@ impl Store {
     /// Will return `Err` if connecting to the server fails.
     pub async fn default(uri: &str) -> Result<Self, RedisError> {
         let client = Client::open(uri)?;
-        let connection_manager = client.get_tokio_connection_manager().await?;
-        Ok(Self { connection_manager })
+        let mut conn = client.get_async_connection().await?;
+        redis::cmd("PING").query_async(&mut conn).await?;
+        Ok(Self { client })
     }
 }
 
 #[async_trait]
 impl Backing for Store {
     #[inline]
-    async fn push(&mut self, job: &Job) -> super::Result<()> {
+    async fn push(&self, job: &Job) -> super::Result<()> {
         let unique_id = format!("{}-{}", &job.queue, &job.id);
+
+        let mut conn = self
+            .client
+            .get_async_connection()
+            .await
+            .map_err(|e| Error::Push {
+                job_id: job.id.clone(),
+                queue: job.queue.clone(),
+                message: e.to_string(),
+                is_retryable: is_retryable(&e),
+            })?;
 
         let exists: bool = redis::cmd("EXISTS")
             .arg(&unique_id)
-            .query_async(&mut self.connection_manager)
+            .query_async(&mut conn)
             .await
             .map_err(|e| Error::Push {
                 job_id: job.id.clone(),
@@ -71,7 +82,7 @@ impl Backing for Store {
             .arg(Utc::now().timestamp_nanos())
             .arg(&unique_id)
             .ignore()
-            .query_async(&mut self.connection_manager)
+            .query_async(&mut conn)
             .await
             .map_err(|e| Error::Push {
                 job_id: job.id.clone(),
@@ -84,8 +95,19 @@ impl Backing for Store {
     }
 
     #[inline]
-    async fn remove(&mut self, job: &Job) -> super::Result<()> {
+    async fn remove(&self, job: &Job) -> super::Result<()> {
         let unique_id = format!("{}-{}", &job.queue, &job.id);
+
+        let mut conn = self
+            .client
+            .get_async_connection()
+            .await
+            .map_err(|e| Error::Remove {
+                job_id: job.id.clone(),
+                queue: job.queue.clone(),
+                message: e.to_string(),
+                is_retryable: is_retryable(&e),
+            })?;
 
         redis::pipe()
             .atomic()
@@ -96,7 +118,7 @@ impl Backing for Store {
             .arg("__index__")
             .arg(&unique_id)
             .ignore()
-            .query_async(&mut self.connection_manager)
+            .query_async(&mut conn)
             .await
             .map_err(|e| Error::Remove {
                 job_id: job.id.clone(),
@@ -110,16 +132,27 @@ impl Backing for Store {
 
     #[inline]
     async fn update(
-        &mut self,
+        &self,
         queue: &str,
         job_id: &str,
         state: &Option<Box<RawValue>>,
     ) -> super::Result<()> {
         let unique_id = format!("{}-{}", &queue, &job_id);
 
+        let mut conn = self
+            .client
+            .get_async_connection()
+            .await
+            .map_err(|e| Error::Update {
+                job_id: job_id.to_string(),
+                queue: queue.to_string(),
+                message: e.to_string(),
+                is_retryable: is_retryable(&e),
+            })?;
+
         let data: String = redis::cmd("GET")
             .arg(&unique_id)
-            .query_async(&mut self.connection_manager)
+            .query_async(&mut conn)
             .await
             .map_err(|e| Error::Update {
                 job_id: job_id.to_string(),
@@ -146,7 +179,7 @@ impl Backing for Store {
         redis::cmd("SET")
             .arg(&unique_id)
             .arg(&data)
-            .query_async(&mut self.connection_manager)
+            .query_async(&mut conn)
             .await
             .map_err(|e| Error::Update {
                 job_id: job_id.to_string(),
@@ -159,12 +192,21 @@ impl Backing for Store {
     }
 
     #[inline]
-    fn recover(&'_ mut self) -> Pin<Box<dyn Stream<Item = super::Result<Job>> + '_>> {
+    fn recover(&'_ self) -> Pin<Box<dyn Stream<Item = super::Result<Job>> + '_>> {
         Box::pin(stream! {
+
+            let mut conn = self
+                .client
+                .get_async_connection()
+                .await
+                .map_err(|e| Error::Recovery {
+                    message: e.to_string(),
+                    is_retryable: is_retryable(&e),
+                })?;
 
             let unique_ids: Vec<String> =
                     redis::cmd("ZRANGE").arg("__index__").arg(0).arg( -1)
-                        .query_async(&mut self.connection_manager)
+                        .query_async(&mut conn)
                         .await
                         .map_err(|e| Error::Recovery {
                             message: e.to_string(),
@@ -172,7 +214,7 @@ impl Backing for Store {
                         })?;
 
             for unique_id in unique_ids {
-                let s: String = redis::cmd("GET").arg(&unique_id).query_async(&mut self.connection_manager).await.map_err(|e| Error::Recovery {
+                let s: String = redis::cmd("GET").arg(&unique_id).query_async(&mut conn).await.map_err(|e| Error::Recovery {
                     message: e.to_string(),
                     is_retryable: is_retryable(&e),
                 })?;
