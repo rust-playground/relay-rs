@@ -8,7 +8,6 @@ use metrics::counter;
 use serde_json::value::RawValue;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::ops::DerefMut;
 use std::pin::Pin;
 use thiserror::Error;
 use tokio::sync::{Mutex, RwLock};
@@ -69,13 +68,13 @@ where
     pub async fn new(backing: B) -> Result<Self> {
         let queues = RwLock::new(HashMap::default());
 
-        // reocover any data in persistent store
+        // recover any data in persistent store
         {
-            let mut noop = noop::Store::default();
+            let noop = noop::Store::default();
             let mut stream = backing.recover();
             while let Some(result) = stream.next().await {
                 let job = result?;
-                enqueue_in_memory(&mut noop, &queues, job).await?;
+                enqueue_in_memory(&noop, &queues, job).await?;
             }
         }
 
@@ -214,7 +213,7 @@ where
 
         for v in r_lock.values() {
             let mut lock = v.lock().await;
-            let state = lock.deref_mut();
+            let state = &mut *lock;
 
             state
                 .queued
@@ -228,9 +227,7 @@ where
                                     match queue_job_ids.entry(j.job.queue.clone()) {
                                         Occupied(mut o) => o.get_mut().push(j.job.id.clone()),
                                         Vacant(v) => {
-                                            let mut job_ids = Vec::new();
-                                            job_ids.push(j.job.id.clone());
-                                            v.insert(job_ids);
+                                            v.insert(vec![j.job.id.clone()]);
                                         }
                                     };
                                     true
@@ -322,19 +319,12 @@ where
             }
             enqueue_in_memory_inner(
                 backing,
-                queues
-                    .read()
-                    .await
-                    .get(&job.queue)
-                    .unwrap()
-                    .lock()
-                    .await
-                    .deref_mut(),
+                &mut *queues.read().await.get(&job.queue).unwrap().lock().await,
                 job,
             )
             .await
         }
-        Some(m) => enqueue_in_memory_inner(backing, m.lock().await.deref_mut(), job).await,
+        Some(m) => enqueue_in_memory_inner(backing, &mut *m.lock().await, job).await,
     }
 }
 
