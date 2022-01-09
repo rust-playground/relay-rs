@@ -11,11 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --features=prometheus_metrics
-      - run: cargo test --features=prometheus_metrics,sqlite_backing
-      - run: cargo test --features=prometheus_metrics,postgres_backing
-      - run: cargo test --features=prometheus_metrics,redis_backing
-      - run: cargo test --features=prometheus_metrics,dynamodb_backing
+      - run: cargo test --all-features
 
   build:
     strategy:
@@ -25,11 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo check --features=prometheus_metrics
-      - run: cargo check --features=prometheus_metrics,sqlite_backing
-      - run: cargo check --features=prometheus_metrics,postgres_backing
-      - run: cargo check --features=prometheus_metrics,redis_backing
-      - run: cargo check --features=prometheus_metrics,dynamodb_backing
+      - run: cargo check --all-features
 
   clippy:
     name: Clippy
@@ -37,8 +29,4 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@clippy
-      - run: cargo clippy --features=prometheus_metrics --tests -- -Dclippy::all -Dclippy::pedantic
-      - run: cargo clippy --features=prometheus_metrics,redis_backing --tests -- -Dclippy::all -Dclippy::pedantic
-      - run: cargo clippy --features=prometheus_metrics,sqlite_backing --tests -- -Dclippy::all -Dclippy::pedantic
-      - run: cargo clippy --features=prometheus_metrics,postgres_backing --tests -- -Dclippy::all -Dclippy::pedantic
-      - run: cargo clippy --features=prometheus_metrics,dynamodb_backing --tests -- -Dclippy::all -Dclippy::pedantic
+      - run: cargo clippy --all-features --tests -- -Dclippy::all -Dclippy::pedantic

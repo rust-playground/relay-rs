@@ -1,5 +1,5 @@
-use super::Backing;
-use crate::store::Job;
+use crate::memory_store::backing::Backing;
+use crate::Job;
 use async_trait::async_trait;
 use serde_json::value::RawValue;
 use std::pin::Pin;

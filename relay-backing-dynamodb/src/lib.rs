@@ -1,7 +1,3 @@
-use super::Backing;
-use super::Error;
-use crate::store::Job;
-use actix_web::http::Uri;
 use async_stream::stream;
 use async_trait::async_trait;
 use aws_config::meta::region::RegionProviderChain;
@@ -15,6 +11,8 @@ use aws_sdk_dynamodb::model::{
 };
 use aws_sdk_dynamodb::{Client, Endpoint, Region, SdkError};
 use chrono::Utc;
+use relay::memory_store::backing::{Backing, Error, Result};
+use relay::Job;
 use serde_json::value::RawValue;
 use std::pin::Pin;
 use tokio_stream::Stream;
@@ -48,7 +46,7 @@ impl Store {
             aws_sdk_dynamodb::config::Builder::from(&shared_config)
                 .endpoint_resolver(
                     // 8000 is the default dynamodb port
-                    Endpoint::immutable(Uri::from_static("http://localhost:8000")),
+                    Endpoint::immutable(http::Uri::from_static("http://localhost:8000")),
                 )
                 .build()
         } else {
@@ -93,7 +91,7 @@ impl Store {
 
 #[async_trait]
 impl Backing for Store {
-    async fn push(&self, job: &Job) -> super::Result<()> {
+    async fn push(&self, job: &Job) -> Result<()> {
         let data = serde_json::to_string(&job).map_err(|e| Error::Push {
             job_id: job.id.clone(),
             queue: job.queue.clone(),
@@ -129,7 +127,7 @@ impl Backing for Store {
         Ok(())
     }
 
-    async fn remove(&self, job: &Job) -> super::Result<()> {
+    async fn remove(&self, job: &Job) -> Result<()> {
         self.client
             .delete_item()
             .table_name(&self.table)
@@ -148,12 +146,7 @@ impl Backing for Store {
         Ok(())
     }
 
-    async fn update(
-        &self,
-        queue: &str,
-        job_id: &str,
-        state: &Option<Box<RawValue>>,
-    ) -> super::Result<()> {
+    async fn update(&self, queue: &str, job_id: &str, state: &Option<Box<RawValue>>) -> Result<()> {
         match state {
             None => {
                 self.client
@@ -193,7 +186,7 @@ impl Backing for Store {
         Ok(())
     }
 
-    fn recover(&self) -> Pin<Box<dyn Stream<Item = super::Result<Job>> + '_>> {
+    fn recover(&self) -> Pin<Box<dyn Stream<Item = Result<Job>> + '_>> {
         Box::pin(stream! {
             struct SortableJobs {
                 job: Job,

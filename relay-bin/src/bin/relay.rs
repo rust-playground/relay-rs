@@ -1,9 +1,8 @@
 #[allow(unused_imports)]
 use anyhow::Context;
 use clap::Parser;
-use relay_rs::store::memory::backing;
-use relay_rs::store::memory::Store as MemoryStore;
-use relay_rs::store::server::http::Server;
+use relay::memory_store::{backing, Store};
+use relay_server_http::Server;
 use std::env;
 
 #[derive(Debug, Parser)]
@@ -92,18 +91,18 @@ async fn main() -> anyhow::Result<()> {
     let backing = backing::noop::Store::default();
 
     #[cfg(feature = "sqlite_backing")]
-    let backing = backing::sqlite::Store::default(&opts.database_url).await?;
+    let backing = relay_backing_sqlite::Store::default(&opts.database_url).await?;
 
     #[cfg(feature = "postgres_backing")]
-    let backing = backing::postgres::Store::default(&opts.database_url).await?;
+    let backing = relay_backing_postgres::Store::default(&opts.database_url).await?;
 
     #[cfg(feature = "redis_backing")]
-    let backing = backing::redis::Store::default(&opts.database_url).await?;
+    let backing = relay_backing_redis::Store::default(&opts.database_url).await?;
 
     #[cfg(feature = "dynamodb_backing")]
-    let backing = backing::dynamodb::Store::default(opts.region, opts.table).await?;
+    let backing = relay_backing_dynamodb::Store::default(opts.region, opts.table).await?;
 
-    let memory_store = MemoryStore::new(backing).await?;
+    let memory_store = Store::new(backing).await?;
 
     Server::run(memory_store, &format!("0.0.0.0:{}", opts.server_port)).await
 }

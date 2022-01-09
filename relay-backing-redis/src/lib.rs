@@ -1,10 +1,9 @@
-use super::Backing;
-use super::Error;
-use super::Job;
 use async_stream::stream;
 use async_trait::async_trait;
 use chrono::Utc;
 use redis::{Client, ErrorKind, RedisError};
+use relay::memory_store::backing::{Backing, Error, Result};
+use relay::Job;
 use serde_json::value::RawValue;
 use std::pin::Pin;
 use tokio_stream::Stream;
@@ -20,7 +19,7 @@ impl Store {
     /// # Errors
     ///
     /// Will return `Err` if connecting to the server fails.
-    pub async fn default(uri: &str) -> Result<Self, RedisError> {
+    pub async fn default(uri: &str) -> std::result::Result<Self, RedisError> {
         let client = Client::open(uri)?;
         let mut conn = client.get_async_connection().await?;
         redis::cmd("PING").query_async(&mut conn).await?;
@@ -31,7 +30,7 @@ impl Store {
 #[async_trait]
 impl Backing for Store {
     #[inline]
-    async fn push(&self, job: &Job) -> super::Result<()> {
+    async fn push(&self, job: &Job) -> Result<()> {
         let unique_id = format!("{}-{}", &job.queue, &job.id);
 
         let mut conn = self
@@ -95,7 +94,7 @@ impl Backing for Store {
     }
 
     #[inline]
-    async fn remove(&self, job: &Job) -> super::Result<()> {
+    async fn remove(&self, job: &Job) -> Result<()> {
         let unique_id = format!("{}-{}", &job.queue, &job.id);
 
         let mut conn = self
@@ -131,12 +130,7 @@ impl Backing for Store {
     }
 
     #[inline]
-    async fn update(
-        &self,
-        queue: &str,
-        job_id: &str,
-        state: &Option<Box<RawValue>>,
-    ) -> super::Result<()> {
+    async fn update(&self, queue: &str, job_id: &str, state: &Option<Box<RawValue>>) -> Result<()> {
         let unique_id = format!("{}-{}", &queue, &job_id);
 
         let mut conn = self
@@ -192,7 +186,7 @@ impl Backing for Store {
     }
 
     #[inline]
-    fn recover(&'_ self) -> Pin<Box<dyn Stream<Item = super::Result<Job>> + '_>> {
+    fn recover(&'_ self) -> Pin<Box<dyn Stream<Item = Result<Job>> + '_>> {
         Box::pin(stream! {
 
             let mut conn = self

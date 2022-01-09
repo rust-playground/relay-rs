@@ -1,34 +1,33 @@
-use super::Backing;
-use super::Error;
-use super::Job;
 use async_stream::stream;
 use async_trait::async_trait;
 use chrono::Utc;
 use log::LevelFilter;
+use relay::memory_store::backing::{Backing, Error, Result};
+use relay::Job;
 use serde_json::value::RawValue;
-use sqlx::sqlite::SqliteConnectOptions;
-use sqlx::{ConnectOptions, Error as SQLXError, Pool, Row, Sqlite, SqlitePool};
+use sqlx::postgres::PgConnectOptions;
+use sqlx::types::Json;
+use sqlx::{ConnectOptions, Error as SQLXError, PgPool, Pool, Postgres, Row};
 use std::io::ErrorKind;
 use std::pin::Pin;
 use std::{str::FromStr, time::Duration};
 use tokio_stream::{Stream, StreamExt};
 use tracing::error;
 
-/// `SQLite` backing store
+/// Postgres backing store
 pub struct Store {
-    pool: Pool<Sqlite>,
+    pool: Pool<Postgres>,
 }
 
 impl Store {
-    /// Creates a new backing store with default settings for `SQLite`.
+    /// Creates a new backing store with default settings for Postgres.
     ///
     /// # Errors
     ///
-    /// Will return `Err` if connecting to the `SQLite` database fails or migrations fail to run.
+    /// Will return `Err` if connecting the server or running migrations fails.
     #[inline]
-    pub async fn default(uri: &str) -> Result<Self, sqlx::error::Error> {
-        let options = SqliteConnectOptions::from_str(uri)?
-            .create_if_missing(true)
+    pub async fn default(uri: &str) -> std::result::Result<Self, sqlx::error::Error> {
+        let options = PgConnectOptions::from_str(uri)?
             .log_statements(LevelFilter::Off)
             .log_slow_statements(LevelFilter::Warn, Duration::from_secs(1))
             .clone();
@@ -39,12 +38,13 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Will return `Err` if connecting to the `SQLite` database fails or migrations fail to run.
+    /// Will return `Err` if connecting the server or running migrations fails.
     #[inline]
-    pub async fn new(options: SqliteConnectOptions) -> Result<Self, sqlx::error::Error> {
-        let pool = SqlitePool::connect_with(options).await?;
+    pub async fn new(options: PgConnectOptions) -> std::result::Result<Self, sqlx::error::Error> {
+        let pool = PgPool::connect_with(options).await?;
         let mut conn = pool.acquire().await?;
-        sqlx::migrate!("./migrations/sqlite").run(&mut conn).await?;
+        sqlx::migrate!("./migrations").run(&mut conn).await?;
+
         Ok(Self { pool })
     }
 }
@@ -52,28 +52,8 @@ impl Store {
 #[async_trait]
 impl Backing for Store {
     #[inline]
-    async fn push(&self, job: &Job) -> super::Result<()> {
+    async fn push(&self, job: &Job) -> Result<()> {
         let now = Utc::now();
-
-        let blob = serde_json::to_vec(&job).map_err(|e| Error::Push {
-            job_id: job.id.clone(),
-            queue: job.queue.clone(),
-            message: e.to_string(),
-            is_retryable: false,
-        })?;
-
-        let state = match &job.state {
-            None => None,
-            Some(state) => {
-                let state = serde_json::to_vec(&state).map_err(|e| Error::Push {
-                    job_id: job.id.clone(),
-                    queue: job.queue.clone(),
-                    message: e.to_string(),
-                    is_retryable: false,
-                })?;
-                Some(state)
-            }
-        };
 
         let mut conn = self.pool.acquire().await.map_err(|e| Error::Push {
             job_id: job.id.clone(),
@@ -82,10 +62,9 @@ impl Backing for Store {
             is_retryable: is_retryable(e),
         })?;
 
-        sqlx::query("INSERT INTO jobs (id, data, state, created_at) VALUES (?1, ?2, ?3, ?4)")
+        sqlx::query("INSERT INTO jobs (id, data, created_at) VALUES ($1, $2, $3)")
             .bind(&format!("{}-{}", &job.queue, &job.id))
-            .bind(&blob)
-            .bind(&state)
+            .bind(Json(job))
             .bind(&now)
             .execute(&mut conn)
             .await
@@ -99,7 +78,7 @@ impl Backing for Store {
     }
 
     #[inline]
-    async fn remove(&self, job: &Job) -> super::Result<()> {
+    async fn remove(&self, job: &Job) -> Result<()> {
         let mut conn = self.pool.acquire().await.map_err(|e| Error::Remove {
             job_id: job.id.clone(),
             queue: job.queue.clone(),
@@ -107,7 +86,7 @@ impl Backing for Store {
             is_retryable: is_retryable(e),
         })?;
 
-        sqlx::query("DELETE FROM jobs WHERE id=?1")
+        sqlx::query("DELETE FROM jobs WHERE id=$1")
             .bind(format!("{}-{}", &job.queue, &job.id))
             .execute(&mut conn)
             .await
@@ -121,12 +100,7 @@ impl Backing for Store {
     }
 
     #[inline]
-    async fn update(
-        &self,
-        queue: &str,
-        job_id: &str,
-        state: &Option<Box<RawValue>>,
-    ) -> super::Result<()> {
+    async fn update(&self, queue: &str, job_id: &str, state: &Option<Box<RawValue>>) -> Result<()> {
         let unique_id = format!("{}-{}", &queue, &job_id);
 
         let mut conn = self.pool.acquire().await.map_err(|e| Error::Update {
@@ -138,7 +112,7 @@ impl Backing for Store {
 
         match state {
             None => {
-                sqlx::query("UPDATE jobs SET state=null WHERE id=?1")
+                sqlx::query("UPDATE jobs SET state=null WHERE id=$1")
                     .bind(&unique_id)
                     .execute(&mut conn)
                     .await
@@ -150,15 +124,9 @@ impl Backing for Store {
                     })?;
             }
             Some(state) => {
-                let state = serde_json::to_vec(&state).map_err(|e| Error::Update {
-                    job_id: job_id.to_string(),
-                    queue: queue.to_string(),
-                    message: e.to_string(),
-                    is_retryable: false,
-                })?;
-                sqlx::query("UPDATE jobs SET state=?2 WHERE id=?1")
+                sqlx::query("UPDATE jobs SET state=$2 WHERE id=$1")
                     .bind(&unique_id)
-                    .bind(state)
+                    .bind(Json(state))
                     .execute(&mut conn)
                     .await
                     .map_err(|e| Error::Update {
@@ -174,7 +142,7 @@ impl Backing for Store {
     }
 
     #[inline]
-    fn recover(&'_ self) -> Pin<Box<dyn Stream<Item = super::Result<Job>> + '_>> {
+    fn recover(&'_ self) -> Pin<Box<dyn Stream<Item = Result<Job>> + '_>> {
         Box::pin(stream! {
             let mut conn = self.pool.acquire().await.map_err(|e| Error::Recovery {
                 message: e.to_string(),
@@ -196,25 +164,24 @@ impl Backing for Store {
                         });
                     }
                     Ok(row) => {
-                        let blob: Vec<u8> = row.get(0);
-                        let state: Option<Vec<u8>> = row.get(1);
-                        let mut job: Job = match serde_json::from_slice(&blob) {
-                            Ok(v) => v,
+                        let mut job: Json<Job> = match row.try_get(0){
+                            Ok(v)=>v,
                             Err(e) => {
                                 error!("failed to recover data: {}", e.to_string());
                                 continue
                             }
                         };
+                        let state: Option<Json<Box<RawValue>>> = match row.try_get(1){
+                            Ok(v)=>v,
+                            Err(e) => {
+                                error!("failed to recover state data: {}", e.to_string());
+                                continue
+                            }
+                        };
                         if let Some(state) = state {
-                            job.state = match serde_json::from_slice(&state) {
-                                Ok(v)=>v,
-                                Err(e) => {
-                                    error!("failed to recover state data: {}", e.to_string());
-                                    continue
-                                }
-                            };
+                            job.state = Some(state.0)
                         }
-                        yield Ok(job);
+                        yield Ok(job.0);
                     }
                 };
             };
@@ -229,18 +196,12 @@ fn is_retryable(e: SQLXError) -> bool {
             None => false,
             Some(code) => {
                 match code.as_ref() {
-                    "5" | "10" | "261" | "773" | "513" | "769" | "3338" | "2314" | "266"
-                    | "778" => {
-                        // 5=SQLITE_BUSY
-                        // 10=SQLITE_IOERR
-                        // 261=SQLITE_BUSY_RECOVERY
-                        // 773=SQLITE_BUSY_TIMEOUT
-                        // 513=SQLITE_ERROR_RETRY
-                        // 769=SQLITE_ERROR_SNAPSHOT
-                        // 3338=SQLITE_IOERR_ACCESS
-                        // 2314=SQLITE_IOERR_UNLOCK
-                        // 266=SQLITE_IOERR_READ
-                        // 778=SQLITE_IOERR_WRITE
+                    "53300" | "55P03" | "57014" | "58000" | "58030" => {
+                        // 53300=too_many_connections
+                        // 55P03=lock_not_available
+                        // 57014=query_canceled
+                        // 58000=system_error
+                        // 58030=io_error
                         true
                     }
                     _ => false,
