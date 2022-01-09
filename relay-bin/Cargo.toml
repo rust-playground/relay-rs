@@ -26,3 +26,9 @@ backing-postgres = ["relay-backing-postgres"]
 backing-redis = ["relay-backing-redis"]
 backing-sqlite = ["relay-backing-sqlite"]
 metrics-prometheus = ["metrics-exporter-prometheus"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[package.metadata.playground]
+all-features = true
