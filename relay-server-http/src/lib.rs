@@ -147,6 +147,10 @@ where
     }
 }
 
+async fn health() -> HttpResponse {
+    HttpResponse::build(StatusCode::OK).finish()
+}
+
 struct Data<B>
 where
     B: Backing + Send + Sync,
@@ -220,6 +224,7 @@ impl Server {
                 .route("/heartbeat", web::patch().to(heartbeat::<B>))
                 .route("/complete", web::delete().to(complete::<B>))
                 .route("/next", web::get().to(next::<B>))
+                .route("/health", web::get().to(health))
         })
         .keep_alive(2)
         .max_connection_rate(512)
