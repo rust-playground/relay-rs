@@ -7,7 +7,7 @@ use crate::memory_store::backing::noop;
 use ahash::RandomState;
 use async_stream::stream;
 use backing::{Backing, Error as BackingError};
-use metrics::counter;
+use metrics::increment_counter;
 use serde_json::value::RawValue;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -200,7 +200,6 @@ where
         // - delete from persistent store successfully
         // - remove from in-memory
         let mut queue_job_ids: HashMap<String, Vec<String>, RandomState> = HashMap::default();
-        let mut retries = 0;
 
         let r_lock = self.queues.read().await;
 
@@ -228,7 +227,7 @@ where
                                     j.retries += 1;
                                     j.heartbeat = None;
                                     state.queued.jobs.push_front(j.job.id.clone());
-                                    retries += 1;
+                                    increment_counter!("retries", "queue" => j.job.queue.clone());
                                     false
                                 }
                             } else {
@@ -239,9 +238,6 @@ where
                         }
                     }
                 });
-        }
-        if retries > 0 {
-            counter!("retries", retries);
         }
 
         self.reap_timeouts_inner(queue_job_ids)

@@ -1,7 +1,7 @@
 use actix_web::http::StatusCode;
 use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpResponse, HttpServer};
-use metrics::{counter, increment_counter};
+use metrics::increment_counter;
 use relay::memory_store::backing::Backing;
 use relay::memory_store::{Error, Store};
 use relay::Job;
@@ -19,26 +19,24 @@ async fn enqueue<B>(data: web::Data<Data<B>>, job: web::Json<Job>) -> HttpRespon
 where
     B: Backing + Send + Sync,
 {
+    increment_counter!("http_request", "endpoint" => "enqueued", "queue" => job.0.queue.clone());
+
     if let Err(e) = data.job_store.enqueue(job.0).await {
+        increment_counter!("errors", "endpoint" => "enqueued", "type" => e.error_type(), "queue" => e.queue());
         match e {
             Error::JobExists { .. } => {
                 HttpResponse::build(StatusCode::CONFLICT).body(e.to_string())
             }
             Error::Backing(e) => {
-                increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
                 if e.is_retryable() {
                     HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
                 } else {
                     HttpResponse::build(StatusCode::UNPROCESSABLE_ENTITY).body(e.to_string())
                 }
             }
-            _ => {
-                increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
-                HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string())
-            }
+            _ => HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string()),
         }
     } else {
-        increment_counter!("enqueued");
         HttpResponse::build(StatusCode::ACCEPTED).finish()
     }
 }
@@ -52,26 +50,24 @@ async fn next<B>(data: web::Data<Data<B>>, info: web::Query<NextInfo>) -> HttpRe
 where
     B: Backing + Send + Sync,
 {
+    increment_counter!("http_request", "endpoint" => "next", "queue" => info.queue.clone());
+
     match data.job_store.next(&info.queue).await {
         Err(e) => {
+            increment_counter!("errors", "endpoint" => "next", "type" => e.error_type(), "queue" => e.queue());
             if let Error::Backing(e) = e {
-                increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
                 if e.is_retryable() {
                     HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
                 } else {
                     HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string())
                 }
             } else {
-                increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
                 HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string())
             }
         }
         Ok(job) => match job {
             None => HttpResponse::build(StatusCode::NO_CONTENT).finish(),
-            Some(job) => {
-                increment_counter!("next");
-                HttpResponse::build(StatusCode::OK).json(job)
-            }
+            Some(job) => HttpResponse::build(StatusCode::OK).json(job),
         },
     }
 }
@@ -90,18 +86,19 @@ async fn heartbeat<B>(
 where
     B: Backing + Send + Sync,
 {
+    increment_counter!("http_request", "endpoint" => "heartbeat", "queue" => info.queue.clone());
+
     let state = match state {
         None => None,
         Some(state) => Some(state.0),
     };
     if let Err(e) = data.job_store.touch(&info.queue, &info.job_id, state).await {
-        increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
+        increment_counter!("errors", "endpoint" => "heartbeat", "type" => e.error_type(), "queue" => e.queue());
         match e {
             Error::JobNotFound { .. } => {
                 HttpResponse::build(StatusCode::NOT_FOUND).body(e.to_string())
             }
             Error::Backing(e) => {
-                increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
                 if e.is_retryable() {
                     HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
                 } else {
@@ -111,7 +108,6 @@ where
             _ => HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string()),
         }
     } else {
-        increment_counter!("heartbeat");
         HttpResponse::build(StatusCode::ACCEPTED).finish()
     }
 }
@@ -126,8 +122,10 @@ async fn complete<B>(data: web::Data<Data<B>>, info: web::Query<CompleteInfo>) -
 where
     B: Backing + Send + Sync,
 {
+    increment_counter!("http_request", "endpoint" => "complete", "queue" => info.queue.clone());
+
     if let Err(e) = data.job_store.complete(&info.queue, &info.job_id).await {
-        increment_counter!("errors", "type" => e.error_type(), "queue" => e.queue());
+        increment_counter!("errors", "endpoint" => "complete", "type" => e.error_type(), "queue" => e.queue());
         match e {
             Error::JobNotFound { .. } => {
                 HttpResponse::build(StatusCode::NOT_FOUND).body(e.to_string())
@@ -142,12 +140,11 @@ where
             _ => HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string()),
         }
     } else {
-        increment_counter!("complete");
         HttpResponse::build(StatusCode::OK).finish()
     }
 }
 
-async fn health() -> HttpResponse {
+fn health() -> HttpResponse {
     HttpResponse::build(StatusCode::OK).finish()
 }
 
@@ -188,7 +185,6 @@ impl Server {
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
-                        let mut timeouts = 0;
                         {
                             let  stream = reaper_store.job_store.reap_timeouts().await;
                             tokio::pin!(stream);
@@ -199,15 +195,12 @@ impl Server {
                                         error!("error occurred reaping jobs. {}", e.to_string());
                                     },
                                     Ok(job)=>{
-                                        timeouts+=1;
+                                        increment_counter!("errors", "type" => "job_timeout", "queue" => job.queue.clone());
                                         warn!("job failed after reaching it's max {} attempt(s) on queue: {} with job id: {}", job.max_retries, job.queue, job.id);
                                     }
                                 };
 
                             }
-                        }
-                        if timeouts > 0 {
-                            counter!("timeouts", timeouts);
                         }
                         interval.reset();
                     },
