@@ -1,5 +1,5 @@
 use crate::memory_store::backing::Backing;
-use crate::Job;
+use crate::memory_store::StoredJob;
 use async_trait::async_trait;
 use serde_json::value::RawValue;
 use std::pin::Pin;
@@ -12,12 +12,12 @@ pub struct Store;
 #[async_trait]
 impl Backing for Store {
     #[inline]
-    async fn push(&self, _job: &Job) -> super::Result<()> {
+    async fn push(&self, _job: &StoredJob) -> super::Result<()> {
         Ok(())
     }
 
     #[inline]
-    async fn remove(&self, _job: &Job) -> super::Result<()> {
+    async fn remove(&self, _job: &StoredJob) -> super::Result<()> {
         Ok(())
     }
 
@@ -27,12 +27,14 @@ impl Backing for Store {
         _queue: &str,
         _job_id: &str,
         _state: &Option<Box<RawValue>>,
+        _retries: Option<u8>,
+        _in_flight: Option<bool>,
     ) -> super::Result<()> {
         Ok(())
     }
 
     #[inline]
-    fn recover(&self) -> Pin<Box<dyn Stream<Item = super::Result<Job>> + '_>> {
+    fn recover(&self) -> Pin<Box<dyn Stream<Item = super::Result<StoredJob>> + '_>> {
         Box::pin(tokio_stream::empty())
     }
 }

@@ -1,7 +1,7 @@
 /// Noop backing store for when no backing store is needed.
 pub mod noop;
 
-use crate::Job;
+use crate::memory_store::StoredJob;
 use async_trait::async_trait;
 use serde_json::value::RawValue;
 use std::pin::Pin;
@@ -10,10 +10,17 @@ use tokio_stream::Stream;
 
 #[async_trait]
 pub trait Backing {
-    async fn push(&self, job: &Job) -> Result<()>;
-    async fn remove(&self, job: &Job) -> Result<()>;
-    async fn update(&self, queue: &str, job_id: &str, state: &Option<Box<RawValue>>) -> Result<()>;
-    fn recover(&self) -> Pin<Box<dyn Stream<Item = Result<Job>> + '_>>;
+    async fn push(&self, job: &StoredJob) -> Result<()>;
+    async fn remove(&self, job: &StoredJob) -> Result<()>;
+    async fn update(
+        &self,
+        queue: &str,
+        job_id: &str,
+        state: &Option<Box<RawValue>>,
+        retries: Option<u8>,
+        in_flight: Option<bool>,
+    ) -> Result<()>;
+    fn recover(&self) -> Pin<Box<dyn Stream<Item = Result<StoredJob>> + '_>>;
 }
 
 /// Backing Result type

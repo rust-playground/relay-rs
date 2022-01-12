@@ -41,11 +41,6 @@ pub struct Job {
 
     /// The raw JSON payload that the job runner will receive.
     pub payload: Box<RawValue>,
-
-    /// The raw JSON job state that can be persisted during heartbeat requests for progression based data
-    /// used in the event of crash or failure. This is usually reserved for long-running jobs.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub state: Option<Box<RawValue>>,
 }
 
 mod duration_u64_serde {

@@ -12,7 +12,7 @@ use aws_sdk_dynamodb::model::{
 use aws_sdk_dynamodb::{Client, Endpoint, Region, SdkError};
 use chrono::Utc;
 use relay::memory_store::backing::{Backing, Error, Result};
-use relay::Job;
+use relay::memory_store::StoredJob;
 use serde_json::value::RawValue;
 use std::pin::Pin;
 use tokio_stream::Stream;
@@ -21,6 +21,8 @@ const PK_KEY: &str = "queue_job_id";
 const TIMESTAMP_KEY: &str = "timestamp";
 const DATA_KEY: &str = "data";
 const STATE_KEY: &str = "state";
+const RETRIES_KEY: &str = "retries";
+const IN_FLIGHT_KEY: &str = "in_flight";
 
 /// `DynamoDB` backing store
 pub struct Store {
@@ -60,11 +62,15 @@ impl Store {
     }
 
     async fn create_table(&self) -> anyhow::Result<()> {
-        self.client
+        if let Err(e) = self
+            .client
             .delete_table()
             .table_name(&self.table)
             .send()
-            .await?;
+            .await
+        {
+            dbg!(e);
+        }
 
         let pk = KeySchemaElement::builder()
             .attribute_name(PK_KEY)
@@ -91,10 +97,10 @@ impl Store {
 
 #[async_trait]
 impl Backing for Store {
-    async fn push(&self, job: &Job) -> Result<()> {
-        let data = serde_json::to_string(&job).map_err(|e| Error::Push {
-            job_id: job.id.clone(),
-            queue: job.queue.clone(),
+    async fn push(&self, stored: &StoredJob) -> Result<()> {
+        let data = serde_json::to_string(&stored).map_err(|e| Error::Push {
+            job_id: stored.job.id.clone(),
+            queue: stored.job.queue.clone(),
             message: e.to_string(),
             is_retryable: false,
         })?;
@@ -105,91 +111,137 @@ impl Backing for Store {
             .table_name(&self.table)
             .item(
                 PK_KEY,
-                AttributeValue::S(format!("{}-{}", &job.queue, &job.id)),
+                AttributeValue::S(format!("{}-{}", &stored.job.queue, &stored.job.id)),
             )
+            .item(DATA_KEY, AttributeValue::S(data))
             .item(
                 TIMESTAMP_KEY,
                 AttributeValue::N(Utc::now().timestamp_nanos().to_string()),
             )
-            .item(DATA_KEY, AttributeValue::S(data))
+            .item(RETRIES_KEY, AttributeValue::N(stored.retries.to_string()))
+            .item(IN_FLIGHT_KEY, AttributeValue::Bool(stored.in_flight))
             .condition_expression(format!("attribute_not_exists({})", PK_KEY));
 
-        if let Some(state) = &job.state {
+        if let Some(state) = &stored.state {
             request = request.item(STATE_KEY, AttributeValue::S(state.to_string()));
         }
 
         request.send().await.map_err(|e| Error::Push {
-            job_id: job.id.clone(),
-            queue: job.queue.clone(),
+            job_id: stored.job.id.clone(),
+            queue: stored.job.queue.clone(),
             message: e.to_string(),
             is_retryable: is_retryable_put(e),
         })?;
         Ok(())
     }
 
-    async fn remove(&self, job: &Job) -> Result<()> {
+    async fn remove(&self, stored: &StoredJob) -> Result<()> {
         self.client
             .delete_item()
             .table_name(&self.table)
             .key(
                 PK_KEY,
-                AttributeValue::S(format!("{}-{}", &job.queue, &job.id)),
+                AttributeValue::S(format!("{}-{}", &stored.job.queue, &stored.job.id)),
             )
             .send()
             .await
             .map_err(|e| Error::Remove {
-                job_id: job.id.clone(),
-                queue: job.queue.clone(),
+                job_id: stored.job.id.clone(),
+                queue: stored.job.queue.clone(),
                 message: e.to_string(),
                 is_retryable: is_retryable_delete(e),
             })?;
         Ok(())
     }
 
-    async fn update(&self, queue: &str, job_id: &str, state: &Option<Box<RawValue>>) -> Result<()> {
-        match state {
-            None => {
-                self.client
-                    .update_item()
-                    .table_name(&self.table)
-                    .key(PK_KEY, AttributeValue::S(format!("{}-{}", &queue, &job_id)))
+    async fn update(
+        &self,
+        queue: &str,
+        job_id: &str,
+        state: &Option<Box<RawValue>>,
+        retries: Option<u8>,
+        in_flight: Option<bool>,
+    ) -> Result<()> {
+        let mut update = self
+            .client
+            .update_item()
+            .table_name(&self.table)
+            .key(PK_KEY, AttributeValue::S(format!("{}-{}", &queue, &job_id)));
+
+        let state = state.as_ref().map(std::string::ToString::to_string);
+
+        match (state, retries, in_flight) {
+            (Some(state), Some(retries), Some(in_flight)) => {
+                update = update
                     .expression_attribute_names("#s", STATE_KEY)
-                    .update_expression("REMOVE #s")
-                    .send()
-                    .await
-                    .map_err(|e| Error::Update {
-                        job_id: job_id.to_string(),
-                        queue: queue.to_string(),
-                        message: e.to_string(),
-                        is_retryable: is_retryable_update(e),
-                    })?;
+                    .expression_attribute_values(":state", AttributeValue::S(state))
+                    .expression_attribute_names("#r", RETRIES_KEY)
+                    .expression_attribute_values(":r", AttributeValue::N(retries.to_string()))
+                    .expression_attribute_names("#i", STATE_KEY)
+                    .expression_attribute_values(":i", AttributeValue::Bool(in_flight))
+                    .update_expression("SET #s = :state, #r = :r, #i = :i");
             }
-            Some(state) => {
-                self.client
-                    .update_item()
-                    .table_name(&self.table)
-                    .key(PK_KEY, AttributeValue::S(format!("{}-{}", &queue, &job_id)))
+            (Some(state), Some(retries), None) => {
+                update = update
                     .expression_attribute_names("#s", STATE_KEY)
-                    .expression_attribute_values(":state", AttributeValue::S(state.to_string()))
-                    .update_expression("SET #s = :state")
-                    .send()
-                    .await
-                    .map_err(|e| Error::Update {
-                        job_id: job_id.to_string(),
-                        queue: queue.to_string(),
-                        message: e.to_string(),
-                        is_retryable: is_retryable_update(e),
-                    })?;
+                    .expression_attribute_values(":state", AttributeValue::S(state))
+                    .expression_attribute_names("#r", RETRIES_KEY)
+                    .expression_attribute_values(":r", AttributeValue::N(retries.to_string()))
+                    .update_expression("SET #s = :state, #r = :r");
             }
-        }
+            (Some(state), None, Some(in_flight)) => {
+                update = update
+                    .expression_attribute_names("#s", STATE_KEY)
+                    .expression_attribute_values(":state", AttributeValue::S(state))
+                    .expression_attribute_names("#i", STATE_KEY)
+                    .expression_attribute_values(":i", AttributeValue::Bool(in_flight))
+                    .update_expression("SET #s = :state, #i = :i");
+            }
+            (Some(state), None, None) => {
+                update = update
+                    .expression_attribute_names("#s", STATE_KEY)
+                    .expression_attribute_values(":state", AttributeValue::S(state))
+                    .update_expression("SET #s = :state");
+            }
+            (None, Some(retries), Some(in_flight)) => {
+                update = update
+                    .expression_attribute_names("#r", RETRIES_KEY)
+                    .expression_attribute_values(":r", AttributeValue::N(retries.to_string()))
+                    .expression_attribute_names("#i", STATE_KEY)
+                    .expression_attribute_values(":i", AttributeValue::Bool(in_flight))
+                    .update_expression("SET #r = :r, #i = :i");
+            }
+            (None, Some(retries), None) => {
+                update = update
+                    .expression_attribute_names("#r", RETRIES_KEY)
+                    .expression_attribute_values(":r", AttributeValue::N(retries.to_string()))
+                    .update_expression("SET #r = :r");
+            }
+            (None, None, Some(in_flight)) => {
+                update = update
+                    .expression_attribute_names("#i", STATE_KEY)
+                    .expression_attribute_values(":i", AttributeValue::Bool(in_flight))
+                    .update_expression("SET #i = :i");
+            }
+            (None, None, None) => {
+                return Ok(());
+            }
+        };
+
+        update.send().await.map_err(|e| Error::Update {
+            job_id: job_id.to_string(),
+            queue: queue.to_string(),
+            message: e.to_string(),
+            is_retryable: is_retryable_update(e),
+        })?;
 
         Ok(())
     }
 
-    fn recover(&self) -> Pin<Box<dyn Stream<Item = Result<Job>> + '_>> {
+    fn recover(&self) -> Pin<Box<dyn Stream<Item = Result<StoredJob>> + '_>> {
         Box::pin(stream! {
             struct SortableJobs {
-                job: Job,
+                job: StoredJob,
                 timestamp: i64,
             }
             let mut jobs = Vec::new();
@@ -225,7 +277,7 @@ impl Backing for Store {
                             None => None,
                             Some(av) => match av {
                                 AttributeValue::S(data) => {
-                                    let job: Job = serde_json::from_str(data).map_err(|e| Error::Recovery {
+                                    let job: StoredJob = serde_json::from_str(data).map_err(|e| Error::Recovery {
                                         message: e.to_string(),
                                         is_retryable: false,
                                     })?;
@@ -247,10 +299,29 @@ impl Backing for Store {
                                 _ => None,
                             },
                         };
+                        let retries = match item.get(RETRIES_KEY) {
+                            None => 0,
+                            Some(v) => match v {
+                                AttributeValue::N(n) => match n.parse::<u8>() {
+                                    Ok(i) => i,
+                                    Err(_) => 0,
+                                },
+                                _ => 0,
+                            },
+                        };
+                        let in_flight = match item.get(IN_FLIGHT_KEY) {
+                            None => false,
+                            Some(v) => match v {
+                                AttributeValue::Bool(b) => *b,
+                                _ => false,
+                            },
+                        };
                         if let Some(mut job) = data {
                             if state.is_some(){
                                 job.state = state;
                             }
+                            job.retries = retries;
+                            job.in_flight = in_flight;
                             jobs.push(SortableJobs { job, timestamp });
                         }
                     }
