@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use redis::{Client, ErrorKind, RedisError};
 use relay::memory_store::backing::{Backing, Error, Result};
-use relay::Job;
+use relay::memory_store::StoredJob;
 use serde_json::value::RawValue;
 use std::pin::Pin;
 use tokio_stream::Stream;
@@ -30,16 +30,16 @@ impl Store {
 #[async_trait]
 impl Backing for Store {
     #[inline]
-    async fn push(&self, job: &Job) -> Result<()> {
-        let unique_id = format!("{}-{}", &job.queue, &job.id);
+    async fn push(&self, stored: &StoredJob) -> Result<()> {
+        let unique_id = format!("{}-{}", &stored.job.queue, &stored.job.id);
 
         let mut conn = self
             .client
             .get_async_connection()
             .await
             .map_err(|e| Error::Push {
-                job_id: job.id.clone(),
-                queue: job.queue.clone(),
+                job_id: stored.job.id.clone(),
+                queue: stored.job.queue.clone(),
                 message: e.to_string(),
                 is_retryable: is_retryable(&e),
             })?;
@@ -49,23 +49,23 @@ impl Backing for Store {
             .query_async(&mut conn)
             .await
             .map_err(|e| Error::Push {
-                job_id: job.id.clone(),
-                queue: job.queue.clone(),
+                job_id: stored.job.id.clone(),
+                queue: stored.job.queue.clone(),
                 message: e.to_string(),
                 is_retryable: is_retryable(&e),
             })?;
         if exists {
             return Err(Error::Push {
-                job_id: job.id.clone(),
-                queue: job.queue.clone(),
+                job_id: stored.job.id.clone(),
+                queue: stored.job.queue.clone(),
                 message: "message exists in Redis somehow but not in memory!".to_string(),
                 is_retryable: false,
             });
         }
 
-        let data = serde_json::to_string(job).map_err(|e| Error::Push {
-            job_id: job.id.clone(),
-            queue: job.queue.clone(),
+        let data = serde_json::to_string(stored).map_err(|e| Error::Push {
+            job_id: stored.job.id.clone(),
+            queue: stored.job.queue.clone(),
             message: e.to_string(),
             is_retryable: false,
         })?;
@@ -84,8 +84,8 @@ impl Backing for Store {
             .query_async(&mut conn)
             .await
             .map_err(|e| Error::Push {
-                job_id: job.id.clone(),
-                queue: job.queue.clone(),
+                job_id: stored.job.id.clone(),
+                queue: stored.job.queue.clone(),
                 message: e.to_string(),
                 is_retryable: is_retryable(&e),
             })?;
@@ -94,16 +94,16 @@ impl Backing for Store {
     }
 
     #[inline]
-    async fn remove(&self, job: &Job) -> Result<()> {
-        let unique_id = format!("{}-{}", &job.queue, &job.id);
+    async fn remove(&self, stored: &StoredJob) -> Result<()> {
+        let unique_id = format!("{}-{}", &stored.job.queue, &stored.job.id);
 
         let mut conn = self
             .client
             .get_async_connection()
             .await
             .map_err(|e| Error::Remove {
-                job_id: job.id.clone(),
-                queue: job.queue.clone(),
+                job_id: stored.job.id.clone(),
+                queue: stored.job.queue.clone(),
                 message: e.to_string(),
                 is_retryable: is_retryable(&e),
             })?;
@@ -120,8 +120,8 @@ impl Backing for Store {
             .query_async(&mut conn)
             .await
             .map_err(|e| Error::Remove {
-                job_id: job.id.clone(),
-                queue: job.queue.clone(),
+                job_id: stored.job.id.clone(),
+                queue: stored.job.queue.clone(),
                 message: e.to_string(),
                 is_retryable: is_retryable(&e),
             })?;
@@ -130,7 +130,14 @@ impl Backing for Store {
     }
 
     #[inline]
-    async fn update(&self, queue: &str, job_id: &str, state: &Option<Box<RawValue>>) -> Result<()> {
+    async fn update(
+        &self,
+        queue: &str,
+        job_id: &str,
+        state: &Option<Box<RawValue>>,
+        retries: Option<u8>,
+        in_flight: Option<bool>,
+    ) -> Result<()> {
         let unique_id = format!("{}-{}", &queue, &job_id);
 
         let mut conn = self
@@ -155,13 +162,21 @@ impl Backing for Store {
                 is_retryable: is_retryable(&e),
             })?;
 
-        let mut job: Job = serde_json::from_str(&data).map_err(|e| Error::Update {
+        let mut job: StoredJob = serde_json::from_str(&data).map_err(|e| Error::Update {
             job_id: job_id.to_string(),
             queue: queue.to_string(),
             message: e.to_string(),
             is_retryable: false,
         })?;
-        job.state = state.clone();
+        if let Some(state) = state {
+            job.state = Some(state.clone());
+        }
+        if let Some(retries) = retries {
+            job.retries = retries;
+        }
+        if let Some(in_flight) = in_flight {
+            job.in_flight = in_flight;
+        }
 
         let data = serde_json::to_string(&job).map_err(|e| Error::Update {
             job_id: job_id.to_string(),
@@ -186,7 +201,7 @@ impl Backing for Store {
     }
 
     #[inline]
-    fn recover(&'_ self) -> Pin<Box<dyn Stream<Item = Result<Job>> + '_>> {
+    fn recover(&'_ self) -> Pin<Box<dyn Stream<Item = Result<StoredJob>> + '_>> {
         Box::pin(stream! {
 
             let mut conn = self
@@ -212,7 +227,7 @@ impl Backing for Store {
                     message: e.to_string(),
                     is_retryable: is_retryable(&e),
                 })?;
-                let job: Job = serde_json::from_str(&s).map_err(|e| Error::Recovery {
+                let job: StoredJob = serde_json::from_str(&s).map_err(|e| Error::Recovery {
                     message: e.to_string(),
                     is_retryable: false,
                 })?;

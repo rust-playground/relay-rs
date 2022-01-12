@@ -8,6 +8,7 @@ use ahash::RandomState;
 use async_stream::stream;
 use backing::{Backing, Error as BackingError};
 use metrics::increment_counter;
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -32,10 +33,25 @@ struct Queued {
     in_flight: HashSet<JobID, RandomState>,
 }
 
-struct StoredJob {
-    job: Job,
+/// Represents the internal store and all state of a Job
+#[derive(Serialize, Deserialize, Clone)]
+pub struct StoredJob {
+    /// The Job itself
+    pub job: Job,
+
+    /// The number of retries already attempted
+    pub retries: u8,
+
+    /// Whether the Job is in-flight or not.
+    pub in_flight: bool,
+
+    /// The raw JSON job state that can be persisted during heartbeat requests for progression based data
+    /// used in the event of crash or failure. This is usually reserved for long-running jobs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<Box<RawValue>>,
+
+    #[serde(skip)]
     heartbeat: Option<Instant>,
-    retries: u8,
 }
 
 /// The memory store implementation.
@@ -66,8 +82,7 @@ where
             let noop = noop::Store::default();
             let mut stream = backing.recover();
             while let Some(result) = stream.next().await {
-                let job = result?;
-                enqueue_in_memory(&noop, &queues, job).await?;
+                enqueue_in_memory(&noop, &queues, result?).await?;
             }
         }
 
@@ -82,7 +97,14 @@ where
     /// the backing store fails
     #[inline]
     pub async fn enqueue(&self, job: Job) -> Result<()> {
-        enqueue_in_memory(&self.backing, &self.queues, job).await
+        let stored = StoredJob {
+            job,
+            retries: 0,
+            in_flight: false,
+            state: None,
+            heartbeat: None,
+        };
+        enqueue_in_memory(&self.backing, &self.queues, stored).await
     }
 
     /// Resets/Extends the timeout timestamp.
@@ -116,13 +138,15 @@ where
                         // can't set heartbeat for non in-flight data.
                         if sj.heartbeat.is_some() {
                             if sj.job.persist_data
-                                && (state.is_some() || state.is_some() != sj.job.state.is_some())
+                                && (state.is_some() || state.is_some() != sj.state.is_some())
                             {
                                 // update persisted data with state
-                                self.backing.update(queue, job_id, &state).await?;
+                                self.backing
+                                    .update(queue, job_id, &state, None, None)
+                                    .await?;
                             }
                             sj.heartbeat = Some(Instant::now());
-                            sj.job.state = state;
+                            sj.state = state;
                         }
                         Ok(())
                     }
@@ -150,7 +174,7 @@ where
                 lock.queued.in_flight.remove(job_id);
                 if let Some(sj) = lock.jobs.remove(job_id) {
                     if sj.job.persist_data {
-                        self.backing.remove(&sj.job).await?;
+                        self.backing.remove(&sj).await?;
                     }
                 }
                 Ok(())
@@ -173,6 +197,8 @@ where
                 if let Some(job_id) = lock.queued.jobs.pop_front() {
                     lock.queued.in_flight.insert(job_id.clone());
 
+                    // TODO: in-flight must be persisted here
+
                     let job = match lock.jobs.get_mut(&job_id) {
                         None => {
                             return Err(Error::JobNotFound {
@@ -182,6 +208,15 @@ where
                         }
                         Some(sj) => {
                             sj.heartbeat = Some(Instant::now());
+                            if sj.job.persist_data
+                                && self
+                                    .backing
+                                    .update(queue, &job_id, &None, None, Some(true))
+                                    .await
+                                    .is_err()
+                            {
+                                increment_counter!("errors", "queue" => sj.job.queue.clone(), "type" => "in_flight_update");
+                            }
                             sj.job.clone()
                         }
                     };
@@ -206,6 +241,7 @@ where
         for v in r_lock.values() {
             let mut lock = v.lock().await;
             let state = &mut *lock;
+            let mut stored = Vec::new();
 
             state
                 .queued
@@ -215,7 +251,7 @@ where
                     Some(j) => {
                         if let Some(heartbeat) = j.heartbeat {
                             if heartbeat.elapsed() > j.job.timeout {
-                                if j.job.max_retries == 0 || j.retries > j.job.max_retries {
+                                if j.job.max_retries == 0 || j.retries >= j.job.max_retries {
                                     match queue_job_ids.entry(j.job.queue.clone()) {
                                         Occupied(mut o) => o.get_mut().push(j.job.id.clone()),
                                         Vacant(v) => {
@@ -227,6 +263,10 @@ where
                                     j.retries += 1;
                                     j.heartbeat = None;
                                     state.queued.jobs.push_front(j.job.id.clone());
+                                    if j.job.persist_data {
+                                        stored.push(j.clone());
+                                    }
+                                    debug!("retrying job {}, retries {}", &j.job.id, &j.retries);
                                     increment_counter!("retries", "queue" => j.job.queue.clone());
                                     false
                                 }
@@ -238,6 +278,17 @@ where
                         }
                     }
                 });
+
+            for j in stored {
+                if self
+                    .backing
+                    .update(&j.job.queue, &j.job.id, &None, Some(j.retries), Some(false))
+                    .await
+                    .is_err()
+                {
+                    increment_counter!("errors", "queue" => j.job.queue.clone(), "type" => "retries_update");
+                }
+            }
         }
 
         self.reap_timeouts_inner(queue_job_ids)
@@ -262,7 +313,7 @@ where
                             Some(sj) => {
                                 if sj.job.persist_data {
                                     self.backing
-                                        .remove(&sj.job)
+                                        .remove(sj)
                                         .await
                                         .map_err(|e| Error::Reaper {
                                             job_id: sj.job.id.clone(),
@@ -285,18 +336,18 @@ where
 }
 
 #[inline]
-async fn enqueue_in_memory<B>(backing: &B, queues: &RwLock<Queues>, job: Job) -> Result<()>
+async fn enqueue_in_memory<B>(backing: &B, queues: &RwLock<Queues>, stored: StoredJob) -> Result<()>
 where
     B: Backing,
 {
     let r_lock = queues.read().await;
-    match r_lock.get(&job.queue) {
+    match r_lock.get(&stored.job.queue) {
         None => {
             // not found
             drop(r_lock);
             {
                 let mut w_lock = queues.write().await;
-                match w_lock.entry(job.queue.clone()) {
+                match w_lock.entry(stored.job.queue.clone()) {
                     Occupied(_) => {
                         // must hand this event because in between dropping the read lock and acquiring
                         // the write other code could get caught in-between.
@@ -308,41 +359,46 @@ where
             }
             enqueue_in_memory_inner(
                 backing,
-                &mut *queues.read().await.get(&job.queue).unwrap().lock().await,
-                job,
+                &mut *queues
+                    .read()
+                    .await
+                    .get(&stored.job.queue)
+                    .unwrap()
+                    .lock()
+                    .await,
+                stored,
             )
             .await
         }
-        Some(m) => enqueue_in_memory_inner(backing, &mut *m.lock().await, job).await,
+        Some(m) => enqueue_in_memory_inner(backing, &mut *m.lock().await, stored).await,
     }
 }
 
 #[inline]
-#[instrument(level = "debug", skip(backing, queue_state, job), fields(job_id=%job.id))]
+#[instrument(level = "debug", skip(backing, queue_state, stored), fields(job_id=%stored.job.id))]
 async fn enqueue_in_memory_inner<B>(
     backing: &B,
     queue_state: &mut QueueState,
-    job: Job,
+    stored: StoredJob,
 ) -> Result<()>
 where
     B: Backing,
 {
-    if let Vacant(v) = queue_state.jobs.entry(job.id.clone()) {
+    if let Vacant(v) = queue_state.jobs.entry(stored.job.id.clone()) {
         debug!("enqueueing job");
-        if job.persist_data {
-            backing.push(&job).await?;
+        if stored.job.persist_data {
+            backing.push(&stored).await?;
         }
-        queue_state.queued.jobs.push_back(job.id.clone());
-        v.insert(StoredJob {
-            job,
-            heartbeat: None,
-            retries: 0,
-        });
+        queue_state.queued.jobs.push_back(stored.job.id.clone());
+        if stored.in_flight {
+            queue_state.queued.in_flight.insert(stored.job.id.clone());
+        }
+        v.insert(stored);
         Ok(())
     } else {
         Err(Error::JobExists {
-            job_id: job.id,
-            queue: job.queue,
+            job_id: stored.job.id,
+            queue: stored.job.queue,
         })
     }
 }
