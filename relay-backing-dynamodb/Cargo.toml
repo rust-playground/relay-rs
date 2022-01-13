@@ -9,8 +9,8 @@ edition = "2021"
 anyhow = "1.0.52"
 async-stream = "0.3.2"
 async-trait = "0.1.52"
-aws-config = "0.4.0"
-aws-sdk-dynamodb = { version = "0.4.0", features = ["rustls"] }
+aws-config = "0.4.1"
+aws-sdk-dynamodb = { version = "0.4.1", features = ["rustls"] }
 chrono = "0.4.19"
 serde_json = { version = "1.0.74", features = ["raw_value"] }
 tokio-stream = "0.1.8"
