@@ -10,6 +10,7 @@ use backing::{Backing, Error as BackingError};
 use metrics::increment_counter;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
+use std::collections::hash_map::Entry;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::pin::Pin;
@@ -171,12 +172,15 @@ where
             }),
             Some(m) => {
                 let mut lock = m.lock().await;
-                lock.queued.in_flight.remove(job_id);
-                if let Some(sj) = lock.jobs.remove(job_id) {
+
+                if let Entry::Occupied(o) = lock.jobs.entry(job_id.to_string()) {
+                    let sj = o.get();
                     if sj.job.persist_data {
-                        self.backing.remove(&sj).await?;
+                        self.backing.remove(sj).await?;
                     }
+                    o.remove();
                 }
+                lock.queued.in_flight.remove(job_id);
                 Ok(())
             }
         }
