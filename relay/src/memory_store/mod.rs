@@ -338,12 +338,8 @@ where
     match queues.get(&stored.job.queue) {
         None => {
             // not found
-            match queues.entry(stored.job.queue.clone()) {
-                Entry::Occupied(_) => { // do nothing
-                }
-                Entry::Vacant(v) => {
-                    v.insert(Mutex::new(QueueState::default()));
-                }
+            if let Entry::Vacant(v) = queues.entry(stored.job.queue.clone()) {
+                v.insert(Mutex::new(QueueState::default()));
             }
 
             enqueue_in_memory_inner(
