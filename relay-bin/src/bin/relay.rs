@@ -69,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
 
     #[cfg(feature = "metrics-prometheus")]
     metrics_exporter_prometheus::PrometheusBuilder::new()
-        .listen_address(
+        .with_http_listener(
             format!("0.0.0.0:{}", &opts.metrics_port)
                 .parse::<std::net::SocketAddr>()
                 .context("invalid prometheus address")?,

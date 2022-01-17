@@ -12,7 +12,7 @@ async-trait = "0.1.52"
 aws-config = "0.4.1"
 aws-sdk-dynamodb = { version = "0.4.1", features = ["rustls"] }
 chrono = "0.4.19"
-serde_json = { version = "1.0.74", features = ["raw_value"] }
+serde_json = { version = "1.0.75", features = ["raw_value"] }
 tokio-stream = "0.1.8"
 relay = { version = "*", path = "../relay" }
 http = "0.2.6"
