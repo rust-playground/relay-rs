@@ -7,6 +7,8 @@ use crate::memory_store::backing::noop;
 use ahash::RandomState;
 use async_stream::stream;
 use backing::{Backing, Error as BackingError};
+use dashmap::mapref::entry::Entry;
+use dashmap::DashMap;
 use metrics::increment_counter;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -14,12 +16,12 @@ use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::pin::Pin;
 use thiserror::Error;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 use tokio::time::Instant;
 use tokio_stream::{Stream, StreamExt};
 use tracing::{debug, instrument};
 
-type Queues = HashMap<Queue, Mutex<QueueState>, RandomState>;
+type Queues = DashMap<Queue, Mutex<QueueState>, RandomState>;
 
 #[derive(Default)]
 struct QueueState {
@@ -59,7 +61,7 @@ pub struct Store<B>
 where
     B: Backing,
 {
-    queues: RwLock<Queues>,
+    queues: Queues,
     backing: B,
 }
 
@@ -75,7 +77,7 @@ where
     ///
     #[inline]
     pub async fn new(backing: B) -> Result<Self> {
-        let queues = RwLock::new(HashMap::default());
+        let queues = DashMap::default();
 
         // recover any data in persistent store
         {
@@ -120,8 +122,7 @@ where
         job_id: &str,
         state: Option<Box<RawValue>>,
     ) -> Result<()> {
-        let r_lock = self.queues.read().await;
-        match r_lock.get(queue) {
+        match self.queues.get(queue) {
             None => Err(Error::JobNotFound {
                 job_id: job_id.to_owned(),
                 queue: queue.to_owned(),
@@ -163,8 +164,7 @@ where
     /// the backing store.
     #[inline]
     pub async fn complete(&self, queue: &str, job_id: &str) -> Result<()> {
-        let r_lock = self.queues.read().await;
-        match r_lock.get(queue) {
+        match self.queues.get(queue) {
             None => Err(Error::JobNotFound {
                 job_id: job_id.to_owned(),
                 queue: queue.to_owned(),
@@ -189,8 +189,7 @@ where
     /// Will return `Err` if the `Job` is not found.
     #[inline]
     pub async fn next(&self, queue: &str) -> Result<Option<Job>> {
-        let r_lock = self.queues.read().await;
-        match r_lock.get(queue) {
+        match self.queues.get(queue) {
             None => Ok(None),
             Some(m) => {
                 let mut lock = m.lock().await;
@@ -236,9 +235,7 @@ where
         // - remove from in-memory
         let mut queue_job_ids: HashMap<String, Vec<String>, RandomState> = HashMap::default();
 
-        let r_lock = self.queues.read().await;
-
-        for v in r_lock.values() {
+        for v in self.queues.iter() {
             let mut lock = v.lock().await;
             let state = &mut *lock;
             let mut stored = Vec::new();
@@ -299,10 +296,8 @@ where
         queue_job_ids: HashMap<String, Vec<String>, RandomState>,
     ) -> Pin<Box<dyn Stream<Item = Result<Job>> + Send + '_>> {
         Box::pin(stream! {
-            let r_lock = self.queues.read().await;
-
             for (queue, job_ids) in queue_job_ids {
-                if let Some(m) = r_lock.get(&queue) {
+                if let Some(m) = self.queues.get(&queue) {
                     let mut lock = m.lock().await;
                     for job_id in job_ids {
                         match lock.jobs.get_mut(&job_id) {
@@ -336,36 +331,24 @@ where
 }
 
 #[inline]
-async fn enqueue_in_memory<B>(backing: &B, queues: &RwLock<Queues>, stored: StoredJob) -> Result<()>
+async fn enqueue_in_memory<B>(backing: &B, queues: &Queues, stored: StoredJob) -> Result<()>
 where
     B: Backing,
 {
-    let r_lock = queues.read().await;
-    match r_lock.get(&stored.job.queue) {
+    match queues.get(&stored.job.queue) {
         None => {
             // not found
-            drop(r_lock);
-            {
-                let mut w_lock = queues.write().await;
-                match w_lock.entry(stored.job.queue.clone()) {
-                    Occupied(_) => {
-                        // must hand this event because in between dropping the read lock and acquiring
-                        // the write other code could get caught in-between.
-                    }
-                    Vacant(v) => {
-                        v.insert(Mutex::new(QueueState::default()));
-                    }
-                };
+            match queues.entry(stored.job.queue.clone()) {
+                Entry::Occupied(_) => { // do nothing
+                }
+                Entry::Vacant(v) => {
+                    v.insert(Mutex::new(QueueState::default()));
+                }
             }
+
             enqueue_in_memory_inner(
                 backing,
-                &mut *queues
-                    .read()
-                    .await
-                    .get(&stored.job.queue)
-                    .unwrap()
-                    .lock()
-                    .await,
+                &mut *queues.get(&stored.job.queue).unwrap().lock().await,
                 stored,
             )
             .await
