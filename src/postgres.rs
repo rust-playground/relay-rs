@@ -53,6 +53,17 @@ impl PgStore {
             })
             .connect_with(options)
             .await?;
+
+        Self::new_with_pool(pool).await
+    }
+
+    /// Creates a new backing store with preconfigured pool
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if connecting the server or running migrations fails.
+    #[inline]
+    pub async fn new_with_pool(pool: PgPool) -> std::result::Result<Self, sqlx::error::Error> {
         {
             let mut conn = pool.acquire().await?;
             sqlx::migrate!("./migrations").run(&mut conn).await?;
@@ -160,7 +171,8 @@ impl PgStore {
             r#"
                UPDATE jobs j
                SET in_flight=true,
-                   updated_at=NOW()
+                   updated_at=NOW(),
+                   expires_at=NOW()+timeout
                FROM (
                     SELECT
                         id,
@@ -233,7 +245,8 @@ impl PgStore {
             r#"
                UPDATE jobs
                SET state=$3,
-                   updated_at=NOW()
+                   updated_at=NOW(),
+                   expires_at=NOW()+timeout
                WHERE
                    queue=$1 AND
                    id=$2 AND
@@ -294,8 +307,8 @@ impl PgStore {
                    retries_remaining=retries_remaining-1
                WHERE
                    in_flight=true AND
-                   retries_remaining > 0 AND
-                   updated_at <= NOW() - timeout
+                   expires_at < NOW() AND
+                   retries_remaining > 0
             "#,
         )
         .execute(&mut conn)
@@ -307,7 +320,6 @@ impl PgStore {
         .rows_affected();
 
         if rows_affected > 0 {
-            dbg!(rows_affected);
             counter!("retries", rows_affected);
         }
 
@@ -316,8 +328,8 @@ impl PgStore {
                DELETE FROM jobs
                WHERE
                    in_flight=true AND
-                   retries_remaining = 0 AND
-                   updated_at <= NOW() - timeout
+                   expires_at < NOW() AND
+                   retries_remaining = 0
             "#,
         )
         .execute(&mut conn)
