@@ -46,6 +46,8 @@ impl PgStore {
             .idle_timeout(Duration::from_secs(20))
             .after_connect(|conn| {
                 Box::pin(async move {
+                    // Insurance as if not at least this isolation mode then some queries are not
+                    // transactional safe. Specifically FOR UPDATE SKIP LOCKED.
                     conn.execute("SET default_transaction_isolation TO 'read committed'")
                         .await?;
                     Ok(())

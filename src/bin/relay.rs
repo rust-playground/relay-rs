@@ -71,13 +71,21 @@ async fn main() -> anyhow::Result<()> {
         .log_slow_statements(LevelFilter::Warn, Duration::from_secs(1))
         .clone();
 
+    let min_connections = if opts.database_max_connections < 10 {
+        1
+    } else {
+        10
+    };
+
     let pool = PgPoolOptions::new()
         .max_connections(opts.database_max_connections)
-        .min_connections(10)
+        .min_connections(min_connections)
         .connect_timeout(Duration::from_secs(60))
         .idle_timeout(Duration::from_secs(20))
         .after_connect(|conn| {
             Box::pin(async move {
+                // Insurance as if not at least this isolation mode then some queries are not
+                // transactional safe. Specifically FOR UPDATE SKIP LOCKED.
                 conn.execute("SET default_transaction_isolation TO 'read committed'")
                     .await?;
                 Ok(())
