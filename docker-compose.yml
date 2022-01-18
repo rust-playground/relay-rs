@@ -1,17 +1,5 @@
 version: "3.7"
 services:
-  redis:
-    image: redis:alpine
-    ports:
-      - "6379:6379"
-    command: redis-server --save “” --appendonly no
-
-  dynamodb:
-    image: amazon/dynamodb-local
-    ports:
-      - "8000:8000"
-    command: [ "-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory" ]
-
   postgres:
     image: postgres:9.6.12
     ports:
