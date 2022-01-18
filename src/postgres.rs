@@ -1,3 +1,4 @@
+#![allow(clippy::cast_possible_truncation)]
 use crate::{Error, Job, JobId, Queue, Result};
 use chrono::Utc;
 use log::LevelFilter;
@@ -71,6 +72,11 @@ impl PgStore {
         Ok(Self { pool })
     }
 
+    /// Enqueues a new Job to be processed.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     pub async fn enqueue(&self, job: &Job) -> Result<()> {
         let mut conn = self.pool.acquire().await.map_err(|e| Error::Postgres {
             message: e.to_string(),
@@ -85,7 +91,7 @@ impl PgStore {
             .bind(PgInterval{
                 months: 0,
                 days: 0,
-                microseconds: job.timeout as i64*1000000
+                microseconds: i64::from(job.timeout )*1_000_000
             }  )
             .bind(job.max_retries)
             .bind(job.max_retries)
@@ -115,7 +121,11 @@ impl PgStore {
         Ok(())
     }
 
-    #[inline]
+    /// Removed the job from the database.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     pub async fn remove(&self, queue: &Queue, job_id: &JobId) -> Result<()> {
         let mut conn = self.pool.acquire().await.map_err(|e| Error::Postgres {
             message: e.to_string(),
@@ -135,6 +145,11 @@ impl PgStore {
         Ok(())
     }
 
+    /// Returns the next Job to be executed in order of insert. FIFO.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     pub async fn next(&self, queue: &Queue) -> Result<Option<Job>> {
         let mut conn = self.pool.acquire().await.map_err(|e| Error::Postgres {
             message: e.to_string(),
@@ -179,7 +194,7 @@ impl PgStore {
             Job {
                 id: row.get(0),
                 queue: row.get(1),
-                timeout: (timeout.microseconds / 1000000) as i32,
+                timeout: (timeout.microseconds / 1_000_000) as i32,
                 max_retries: row.get(3),
                 payload: payload.0,
                 state: state.map(|state| match state {
@@ -197,6 +212,12 @@ impl PgStore {
         Ok(job)
     }
 
+    /// Updates the existing in-flight job by incrementing it's `updated_at` and option state.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if there is any communication issues with the backend Postgres DB or the
+    /// Job attempting to be updated cannot be found.
     pub async fn update(
         &self,
         queue: &str,
@@ -240,6 +261,11 @@ impl PgStore {
         }
     }
 
+    /// Reset records to be retries and deletes those that have reached their max.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     pub async fn reap_timeouts(&self) -> Result<()> {
         let mut conn = self.pool.acquire().await.map_err(|e| Error::Postgres {
             message: e.to_string(),

@@ -29,7 +29,9 @@ async fn enqueue(data: web::Data<Data>, job: web::Json<Job>) -> HttpResponse {
                     HttpResponse::build(StatusCode::UNPROCESSABLE_ENTITY).body(e.to_string())
                 }
             }
-            _ => HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string()),
+            Error::JobNotFound { .. } => {
+                HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string())
+            }
         }
     } else {
         HttpResponse::build(StatusCode::ACCEPTED).finish()
@@ -94,7 +96,9 @@ async fn heartbeat(
                     HttpResponse::build(StatusCode::UNPROCESSABLE_ENTITY).body(e.to_string())
                 }
             }
-            _ => HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string()),
+            Error::JobExists { .. } => {
+                HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string())
+            }
         }
     } else {
         HttpResponse::build(StatusCode::ACCEPTED).finish()
@@ -123,7 +127,9 @@ async fn complete(data: web::Data<Data>, info: web::Query<CompleteInfo>) -> Http
                     HttpResponse::build(StatusCode::UNPROCESSABLE_ENTITY).body(e.to_string())
                 }
             }
-            _ => HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string()),
+            Error::JobExists { .. } => {
+                HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string())
+            }
         }
     } else {
         HttpResponse::build(StatusCode::OK).finish()
