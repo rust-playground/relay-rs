@@ -67,8 +67,7 @@ impl PgStore {
     #[inline]
     pub async fn new_with_pool(pool: PgPool) -> std::result::Result<Self, sqlx::error::Error> {
         {
-            let mut conn = pool.acquire().await?;
-            sqlx::migrate!("./migrations").run(&mut conn).await?;
+            sqlx::migrate!("./migrations").run(&pool).await?;
 
             // insert internal records if they don't already exist
             sqlx::query(
@@ -78,7 +77,7 @@ impl PgStore {
             )
             .bind("reap")
             .bind(Utc::now())
-            .execute(&mut conn)
+            .execute(&pool)
             .await?;
         }
 
@@ -91,11 +90,6 @@ impl PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     pub async fn enqueue(&self, job: &Job) -> Result<()> {
-        let mut conn = self.pool.acquire().await.map_err(|e| Error::Postgres {
-            message: e.to_string(),
-            is_retryable: is_retryable(e),
-        })?;
-
         let now = Utc::now();
 
         sqlx::query("INSERT INTO jobs (id, queue, timeout, max_retries, retries_remaining, data, updated_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)")
@@ -111,7 +105,7 @@ impl PgStore {
             .bind(Json(&job.payload))
             .bind(&now)
             .bind(&now)
-            .execute(&mut conn)
+            .execute(&self.pool)
             .await
             .map_err(|e| {
                 if let sqlx::Error::Database(ref db) = e {
@@ -140,15 +134,10 @@ impl PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     pub async fn remove(&self, queue: &Queue, job_id: &JobId) -> Result<()> {
-        let mut conn = self.pool.acquire().await.map_err(|e| Error::Postgres {
-            message: e.to_string(),
-            is_retryable: is_retryable(e),
-        })?;
-
         sqlx::query("DELETE FROM jobs WHERE queue=$1 AND id=$2")
             .bind(queue)
             .bind(job_id)
-            .execute(&mut conn)
+            .execute(&self.pool)
             .await
             .map_err(|e| Error::Postgres {
                 message: e.to_string(),
@@ -164,11 +153,6 @@ impl PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     pub async fn next(&self, queue: &Queue) -> Result<Option<Job>> {
-        let mut conn = self.pool.acquire().await.map_err(|e| Error::Postgres {
-            message: e.to_string(),
-            is_retryable: is_retryable(e),
-        })?;
-
         let job = sqlx::query(
             r#"
                UPDATE jobs j
@@ -216,7 +200,7 @@ impl PgStore {
                 }),
             }
         })
-        .fetch_optional(&mut conn)
+        .fetch_optional(&self.pool)
         .await
         .map_err(|e| Error::Postgres {
             message: e.to_string(),
@@ -238,11 +222,6 @@ impl PgStore {
         job_id: &str,
         state: Option<Box<RawValue>>,
     ) -> Result<()> {
-        let mut conn = self.pool.acquire().await.map_err(|e| Error::Postgres {
-            message: e.to_string(),
-            is_retryable: is_retryable(e),
-        })?;
-
         let rows_affected = sqlx::query(
             r#"
                UPDATE jobs
@@ -258,7 +237,7 @@ impl PgStore {
         .bind(queue)
         .bind(job_id)
         .bind(state.map(|state| Some(Json(state))))
-        .execute(&mut conn)
+        .execute(&self.pool)
         .await
         .map_err(|e| Error::Postgres {
             message: e.to_string(),
@@ -282,18 +261,19 @@ impl PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     pub async fn reap_timeouts(&self) -> Result<()> {
-        let mut conn = self.pool.acquire().await.map_err(|e| Error::Postgres {
+        let rows_affected = sqlx::query(
+            r#"
+            UPDATE internal_state 
+            SET last_run=NOW() 
+            WHERE last_run <= NOW() - INTERVAL '10 seconds'"#,
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| Error::Postgres {
             message: e.to_string(),
             is_retryable: is_retryable(e),
-        })?;
-
-        let rows_affected = sqlx::query("UPDATE internal_state SET last_run=NOW() WHERE last_run <= NOW() - INTERVAL '10 seconds'").execute(&mut conn)
-            .await
-            .map_err(|e| Error::Postgres {
-                message: e.to_string(),
-                is_retryable: is_retryable(e),
-            })?
-            .rows_affected();
+        })?
+        .rows_affected();
 
         // another instance has already updated OR time hasn't been hit yet
         if rows_affected == 0 {
@@ -313,7 +293,7 @@ impl PgStore {
                    retries_remaining > 0
             "#,
         )
-        .execute(&mut conn)
+        .execute(&self.pool)
         .await
         .map_err(|e| Error::Postgres {
             message: e.to_string(),
@@ -334,7 +314,7 @@ impl PgStore {
                    retries_remaining = 0
             "#,
         )
-        .execute(&mut conn)
+        .execute(&self.pool)
         .await
         .map_err(|e| Error::Postgres {
             message: e.to_string(),

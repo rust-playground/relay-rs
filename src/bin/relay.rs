@@ -31,7 +31,7 @@ pub struct Opts {
     pub database_url: String,
 
     /// Maximum allowed database connections
-    #[clap(long, default_value = "200", env = "DATABASE_MAX_CONNECTIONS")]
+    #[clap(long, default_value = "10", env = "DATABASE_MAX_CONNECTIONS")]
     pub database_max_connections: u32,
 }
 
@@ -80,8 +80,8 @@ async fn main() -> anyhow::Result<()> {
     let pool = PgPoolOptions::new()
         .max_connections(opts.database_max_connections)
         .min_connections(min_connections)
-        .connect_timeout(Duration::from_secs(60))
-        .idle_timeout(Duration::from_secs(20))
+        .connect_timeout(Duration::from_secs(30))
+        .idle_timeout(Duration::from_secs(60 * 5))
         .after_connect(|conn| {
             Box::pin(async move {
                 // Insurance as if not at least this isolation mode then some queries are not
