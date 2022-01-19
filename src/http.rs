@@ -9,13 +9,13 @@
 //! #### Arguments
 //! In this case the only arguments are part of the Body payload.
 //!
-//! | argument     | required | description                                                                                                                                                                            |
-//! |--------------|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-//! | id           | true     | The unique Job Id which is also CAN be used to ensure the Job is a singleton within a Queue.                                                                                           |
-//! | queue        | true     | Is used to differentiate different job types that can be picked up by job runners.                                                                                                     |
-//! | timeout      | true     | Denotes the duration, in seconds, after a Job has started processing or since the last heartbeat request occurred before considering the Job failed and being put back into the queue. |
-//! | max_retries  | false    | Determines how many times the Job can be retried, due to timeouts, before being considered.                                                                                            |
-//! | payload      | false    | The raw JSON payload that the job runner will receive.                                                                                                                                 |
+//! | argument      | required | description                                                                                                                                                                            |
+//! |---------------|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+//! | `id`          | true     | The unique Job Id which is also CAN be used to ensure the Job is a singleton within a Queue.                                                                                           |
+//! | `queue`       | true     | Is used to differentiate different job types that can be picked up by job runners.                                                                                                     |
+//! | `timeout`     | true     | Denotes the duration, in seconds, after a Job has started processing or since the last heartbeat request occurred before considering the Job failed and being put back into the queue. |
+//! | `max_retries` | false    | Determines how many times the Job can be retried, due to timeouts, before being considered.                                                                                            |
+//! | `payload`     | false    | The raw JSON payload that the job runner will receive.                                                                                                                                 |
 //!
 //! #### Request Body
 //! ```json
@@ -49,7 +49,7 @@
 //!
 //! | argument | required | description                                         |
 //! |----------|----------|-----------------------------------------------------|
-//! | queue    | true     | Used to pull the next job from the requested queue. |
+//! | `queue`  | true     | Used to pull the next job from the requested queue. |
 //!
 //! #### Response Body
 //! Some fields may not be present such as `state` when none exists.
@@ -84,8 +84,8 @@
 //!
 //! | argument | required | description                                                      |
 //! |----------|----------|------------------------------------------------------------------|
-//! | queue    | true     | The Queue to apply the heartbeat to.                             |
-//! | job_id   | true     | The Job ID to apply the heartbeat to within the supplied Queue.  |
+//! | `queue`  | true     | The Queue to apply the heartbeat to.                             |
+//! | `job_id` | true     | The Job ID to apply the heartbeat to within the supplied Queue.  |
 //!
 //!
 //! #### Request Body
@@ -113,8 +113,8 @@
 //!
 //! | argument | required | description                          |
 //! |----------|----------|--------------------------------------|
-//! | queue    | true     | The Queue to remove the job_id from. |
-//! | job_id   | true     | The Job ID to remove from the queue. |
+//! | `queue`  | true     | The Queue to remove the `job_id` from. |
+//! | `job_id` | true     | The Job ID to remove from the queue. |
 //!
 //! ### Response Codes
 //!
