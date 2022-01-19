@@ -2,8 +2,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use thiserror::Error;
 
-pub type Queue = String;
+/// The Job Id alias
 pub type JobId = String;
+
+/// The Queue alias
+pub type Queue = String;
 
 /// Job defines all information needed to process a job.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -28,6 +31,9 @@ pub struct Job {
     pub payload: Box<RawValue>,
 
     /// The raw JSON payload that the job runner will receive.
+    ///
+    /// This state will NOT be accepted when enqueueing a Job and can only be set via a Heartbeat
+    /// request.
     #[serde(skip_deserializing)]
     pub state: Option<Box<RawValue>>,
 }
@@ -52,10 +58,10 @@ pub struct Job {
 //     }
 // }
 
-/// Memory store Result type.
+/// The Job Result.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Memory store errors.
+/// Job error types.
 #[derive(Error, Debug)]
 pub enum Error {
     /// indicates a Job with the existing ID and Queue already exists.
