@@ -1,11 +1,27 @@
-[workspace]
+[package]
+name = "relay-rs"
+version = "0.2.0"
+edition = "2021"
 
-members = [
-    "relay",
-    "relay-bin",
-    "relay-backing-dynamodb",
-    "relay-backing-postgres",
-    "relay-backing-redis",
-    "relay-backing-sqlite",
-    "relay-server-http",
-]
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.52"
+clap = { version = "3.0.10", features = ["derive", "env"] }
+tokio = { version = "1.15.0", features = ["rt-multi-thread", "net", "time","macros"] }
+tracing-subscriber = { version = "0.3.6", features = ["env-filter"] }
+metrics-exporter-prometheus = { version = "0.8.0", optional = true }
+metrics-util = "0.11.0"
+metrics = "0.18.0"
+chrono = "0.4.19"
+serde = { version = "1.0.133", features = ["derive"] }
+serde_json = { version = "1.0.75", features = ["raw_value"] }
+log = "0.4.14"
+tracing = "0.1.29"
+sqlx = { version = "0.5.10", features = ["postgres", "chrono","runtime-tokio-rustls", "all-types", "migrate"] }
+actix-web = { version = "4.0.0-beta.20", default-features = false, features = ["compress-gzip", "rustls"] }
+thiserror = "1.0.30"
+
+[features]
+default = []
+metrics-prometheus = ["metrics-exporter-prometheus"]
