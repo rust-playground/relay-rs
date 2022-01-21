@@ -307,7 +307,7 @@ impl PgStore {
         })?;
 
         for (queue, count) in results {
-            counter!("retries", count as u64, "queue" => queue);
+            counter!("retries", u64::try_from(count).unwrap_or_default(), "queue" => queue);
         }
 
         let results: Vec<(String, i64)> = sqlx::query_as::<_, (String, i64)>(
@@ -337,7 +337,7 @@ impl PgStore {
                 "deleted {} records from queue '{}' that reached their max retries",
                 count, queue
             );
-            counter!("errors", count as u64, "queue" => queue);
+            counter!("errors", u64::try_from(count).unwrap_or_default(), "queue" => queue);
         }
         Ok(())
     }
