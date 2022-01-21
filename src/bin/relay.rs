@@ -33,6 +33,10 @@ pub struct Opts {
     /// Maximum allowed database connections
     #[clap(long, default_value = "10", env = "DATABASE_MAX_CONNECTIONS")]
     pub database_max_connections: u32,
+
+    /// This time interval, in seconds, between runs checking for retries and failed jobs.
+    #[clap(long, default_value = "5", env = "REAP_INTERVAL")]
+    pub reap_interval: u64,
 }
 
 #[tokio::main]
@@ -96,5 +100,10 @@ async fn main() -> anyhow::Result<()> {
 
     let pg = PgStore::new_with_pool(pool).await?;
 
-    Server::run(pg, &format!("0.0.0.0:{}", opts.http_port)).await
+    Server::run(
+        pg,
+        &format!("0.0.0.0:{}", opts.http_port),
+        Duration::from_secs(opts.reap_interval),
+    )
+    .await
 }

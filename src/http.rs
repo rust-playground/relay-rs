@@ -287,13 +287,13 @@ impl Server {
     /// Will panic the reaper async thread fails, which can only happen if the timer and channel
     /// both die.
     #[inline]
-    pub async fn run(pg_store: PgStore, addr: &str) -> anyhow::Result<()> {
+    pub async fn run(pg_store: PgStore, addr: &str, reap_interval: Duration) -> anyhow::Result<()> {
         let store = web::Data::new(Data { pg_store });
 
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
         let reap_store = store.clone();
         let reaper = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(5));
+            let mut interval = tokio::time::interval(reap_interval);
             interval.reset();
             tokio::pin!(shutdown_rx);
 
