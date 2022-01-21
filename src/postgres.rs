@@ -282,52 +282,62 @@ impl PgStore {
 
         debug!("running timeout reaper");
 
-        let rows_affected = sqlx::query(
+        let results: Vec<(String, i64)> = sqlx::query_as::<_, (String, i64)>(
             r#"
-               UPDATE jobs
-               SET in_flight=false,
-                   retries_remaining=retries_remaining-1
-               WHERE
-                   in_flight=true AND
-                   expires_at < NOW() AND
-                   retries_remaining > 0
+               WITH cte_updates AS (
+                   UPDATE jobs
+                   SET in_flight=false,
+                       retries_remaining=retries_remaining-1
+                   WHERE
+                       in_flight=true AND
+                       expires_at < NOW() AND
+                       retries_remaining > 0
+                   RETURNING queue
+               )
+               SELECT queue, COUNT(queue)
+               FROM cte_updates
+               GROUP BY queue
             "#,
         )
-        .execute(&self.pool)
+        .fetch_all(&self.pool)
         .await
         .map_err(|e| Error::Postgres {
             message: e.to_string(),
             is_retryable: is_retryable(e),
-        })?
-        .rows_affected();
+        })?;
 
-        if rows_affected > 0 {
-            counter!("retries", rows_affected);
+        for (queue, count) in results {
+            counter!("retries", u64::try_from(count).unwrap_or_default(), "queue" => queue);
         }
 
-        let rows_affected = sqlx::query(
+        let results: Vec<(String, i64)> = sqlx::query_as::<_, (String, i64)>(
             r#"
-               DELETE FROM jobs
-               WHERE
-                   in_flight=true AND
-                   expires_at < NOW() AND
-                   retries_remaining = 0
+               WITH cte_updates AS (
+                   DELETE FROM jobs
+                   WHERE
+                       in_flight=true AND
+                       expires_at < NOW() AND
+                       retries_remaining = 0
+                   RETURNING queue
+               )
+               SELECT queue, COUNT(queue)
+               FROM cte_updates
+               GROUP BY queue
             "#,
         )
-        .execute(&self.pool)
+        .fetch_all(&self.pool)
         .await
         .map_err(|e| Error::Postgres {
             message: e.to_string(),
             is_retryable: is_retryable(e),
-        })?
-        .rows_affected();
+        })?;
 
-        if rows_affected > 0 {
+        for (queue, count) in results {
             warn!(
-                "deleted {} records that reached their max retries",
-                rows_affected
+                "deleted {} records from queue '{}' that reached their max retries",
+                count, queue
             );
-            counter!("errors", rows_affected, "type" => "max_retries");
+            counter!("errors", u64::try_from(count).unwrap_or_default(), "queue" => queue);
         }
         Ok(())
     }
