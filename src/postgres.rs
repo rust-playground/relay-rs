@@ -260,13 +260,14 @@ impl PgStore {
     /// # Errors
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
-    pub async fn reap_timeouts(&self) -> Result<()> {
+    pub async fn reap_timeouts(&self, interval: &Duration) -> Result<()> {
         let rows_affected = sqlx::query(
             r#"
             UPDATE internal_state 
             SET last_run=NOW() 
-            WHERE last_run <= NOW() - INTERVAL '10 seconds'"#,
+            WHERE last_run <= NOW() - INTERVAL '$1 seconds'"#,
         )
+        .bind(interval.as_secs() as i64)
         .execute(&self.pool)
         .await
         .map_err(|e| Error::Postgres {

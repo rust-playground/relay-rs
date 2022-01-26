@@ -300,7 +300,7 @@ impl Server {
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
-                        if let Err(e) = reap_store.pg_store.reap_timeouts().await {
+                        if let Err(e) = reap_store.pg_store.reap_timeouts(&reap_interval).await {
                             error!("error occurred reaping jobs. {}", e.to_string());
                         }
                         interval.reset();
