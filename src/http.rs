@@ -289,7 +289,10 @@ impl Server {
     #[inline]
     pub async fn run(pg_store: PgStore, addr: &str, reap_interval: Duration) -> anyhow::Result<()> {
         let store = web::Data::new(Data { pg_store });
-
+        let interval_seconds = match i64::try_from(reap_interval.as_secs()) {
+            Ok(n) => n,
+            Err(_) => i64::MAX,
+        };
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
         let reap_store = store.clone();
         let reaper = tokio::spawn(async move {
@@ -300,7 +303,7 @@ impl Server {
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
-                        if let Err(e) = reap_store.pg_store.reap_timeouts(&reap_interval).await {
+                        if let Err(e) = reap_store.pg_store.reap_timeouts(interval_seconds).await {
                             error!("error occurred reaping jobs. {}", e.to_string());
                         }
                         interval.reset();
