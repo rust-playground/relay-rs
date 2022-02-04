@@ -17,7 +17,7 @@ pub struct Job {
     /// Is used to differentiate different job types that can be picked up by job runners.
     pub queue: Queue,
 
-    /// Denotes the duration after a Job has started processing or since the last
+    /// Denotes the duration, in seconds, after a Job has started processing or since the last
     /// heartbeat request occurred before considering the Job failed and being put back into the
     /// queue.
     pub timeout: i32,
@@ -32,7 +32,7 @@ pub struct Job {
 
     /// The raw JSON payload that the job runner will receive.
     ///
-    /// This state will NOT be accepted when enqueueing a Job and can only be set via a Heartbeat
+    /// This state will be ignored when enqueueing a Job and can only be set via a Heartbeat
     /// request.
     #[serde(skip_deserializing)]
     pub state: Option<Box<RawValue>>,

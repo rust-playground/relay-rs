@@ -267,7 +267,8 @@ async fn complete(data: web::Data<Data>, info: web::Query<CompleteInfo>) -> Http
     }
 }
 
-fn health() -> HttpResponse {
+#[allow(clippy::unused_async)]
+async fn health() -> HttpResponse {
     HttpResponse::build(StatusCode::OK).finish()
 }
 
