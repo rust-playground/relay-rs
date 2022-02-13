@@ -2,8 +2,8 @@
 use anyhow::Context;
 use clap::Parser;
 use log::LevelFilter;
-use relay_rs::http::Server;
-use relay_rs::postgres::PgStore;
+use relay::http::Server;
+use relay::postgres::PgStore;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{ConnectOptions, Executor};
 use std::env;
