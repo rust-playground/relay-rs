@@ -1,15 +1,12 @@
 #[allow(unused_imports)]
 use anyhow::Context;
 use clap::Parser;
-use log::LevelFilter;
-use relay_rs::http::Server;
-use relay_rs::postgres::PgStore;
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-use sqlx::{ConnectOptions, Executor};
+use scheduler::http::Server;
+use scheduler::postgres::PgStore;
+use scheduler::store::Store;
 use std::env;
-use std::str::FromStr;
-use std::time::Duration;
 
+/// Application Arguments
 #[derive(Debug, Parser)]
 #[clap(version = env!("CARGO_PKG_VERSION"), author = env!("CARGO_PKG_AUTHORS"), about = env!("CARGO_PKG_DESCRIPTION"))]
 pub struct Opts {
@@ -25,7 +22,7 @@ pub struct Opts {
     /// DATABASE URL to connect to.
     #[clap(
         long,
-        default_value = "postgres://username:pass@localhost:5432/dev?sslmode=disable",
+        default_value = "postgres://username:pass@localhost:5432/scheduler?sslmode=disable",
         env = "DATABASE_URL"
     )]
     pub database_url: String,
@@ -33,10 +30,6 @@ pub struct Opts {
     /// Maximum allowed database connections
     #[clap(long, default_value = "10", env = "DATABASE_MAX_CONNECTIONS")]
     pub database_max_connections: u32,
-
-    /// This time interval, in seconds, between runs checking for retries and failed jobs.
-    #[clap(long, default_value = "5", env = "REAP_INTERVAL")]
-    pub reap_interval: u64,
 }
 
 #[tokio::main]
@@ -70,40 +63,9 @@ async fn main() -> anyhow::Result<()> {
         .install()
         .context("failed to install Prometheus recorder")?;
 
-    let options = PgConnectOptions::from_str(&opts.database_url)?
-        .log_statements(LevelFilter::Off)
-        .log_slow_statements(LevelFilter::Warn, Duration::from_secs(1))
-        .clone();
+    let backing = PgStore::default(&opts.database_url).await?;
 
-    let min_connections = if opts.database_max_connections < 10 {
-        1
-    } else {
-        10
-    };
+    let job_store = Store::new(backing).await?;
 
-    let pool = PgPoolOptions::new()
-        .max_connections(opts.database_max_connections)
-        .min_connections(min_connections)
-        .connect_timeout(Duration::from_secs(30))
-        .idle_timeout(Duration::from_secs(60 * 5))
-        .after_connect(|conn| {
-            Box::pin(async move {
-                // Insurance as if not at least this isolation mode then some queries are not
-                // transactional safe. Specifically FOR UPDATE SKIP LOCKED.
-                conn.execute("SET default_transaction_isolation TO 'read committed'")
-                    .await?;
-                Ok(())
-            })
-        })
-        .connect_with(options)
-        .await?;
-
-    let pg = PgStore::new_with_pool(pool).await?;
-
-    Server::run(
-        pg,
-        &format!("0.0.0.0:{}", opts.http_port),
-        Duration::from_secs(opts.reap_interval),
-    )
-    .await
+    Server::run(job_store, &format!("0.0.0.0:{}", opts.http_port)).await
 }

@@ -1,28 +1,15 @@
 # relay-rs
 
-This contains a no nonsense, horizontally scalable, ordered job runner backed by Postgres.
+This contains a no nonsense, horizontally scalable, ordered job runner backed by Postgres, Scheduler
+for running jobs and clients for each.
 
-### Features
-Optional features:
-- [`metrics-prometheus`][]: Enables emitting of Prometheus metrics via a scraping endpoint.
+#### Crates
+See details for each crate.
 
-[`metrics-prometheus`]: https://crates.io/crates/metrics-exporter-prometheus
-
-#### API
-For details about the API see [here](./API.md). 
-
-#### How to build
-```shell
-~ cargo build --release
-```
-
-#### Clients
-Here is a list of existing clients.
-
-| Language | Description                 |
-|----------|-----------------------------|
-| [Go](https://github.com/go-playground/relay-client-go)   | Go low & high level client. |
-
+| Crate                              | Description                                            |
+|------------------------------------|--------------------------------------------------------|
+| [relay](./relay/README.md)         | No nonsense horizontally scalable, ordered Job Runner. |
+| [scheduler](./scheduler/README.md) | Cron backed Job Scheduler for Relay Jobs.              |
 
 #### License
 

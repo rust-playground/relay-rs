@@ -38,26 +38,6 @@ pub struct Job {
     pub state: Option<Box<RawValue>>,
 }
 
-// mod duration_u64_serde {
-//     use serde::{self, Deserialize, Deserializer, Serializer};
-//     use std::time::Duration;
-//
-//     pub fn serialize<S>(d: &Duration, s: S) -> Result<S::Ok, S::Error>
-//     where
-//         S: Serializer,
-//     {
-//         s.serialize_u64(d.as_secs())
-//     }
-//
-//     pub fn deserialize<'de, D>(deserializer: D) -> Result<Duration, D::Error>
-//     where
-//         D: Deserializer<'de>,
-//     {
-//         let seconds = u64::deserialize(deserializer)?;
-//         Ok(Duration::from_secs(seconds))
-//     }
-// }
-
 /// The Job Result.
 pub type Result<T> = std::result::Result<T, Error>;
 
