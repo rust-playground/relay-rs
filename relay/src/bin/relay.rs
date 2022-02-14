@@ -25,7 +25,7 @@ pub struct Opts {
     /// DATABASE URL to connect to.
     #[clap(
         long,
-        default_value = "postgres://username:pass@localhost:5432/dev?sslmode=disable",
+        default_value = "postgres://username:pass@localhost:5432/relay?sslmode=disable",
         env = "DATABASE_URL"
     )]
     pub database_url: String,
