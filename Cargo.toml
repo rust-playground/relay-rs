@@ -1,5 +1,6 @@
 [workspace]
 
 members = [
-    "relay"
+    "relay",
+    "scheduler",
 ]

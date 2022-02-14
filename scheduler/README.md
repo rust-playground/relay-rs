@@ -1,6 +1,6 @@
-# relay
+# scheduler
 
-This contains a no nonsense, horizontally scalable, ordered job runner backed by Postgres.
+This crate contains a Cron backed Job Scheduler for executing [Jobs](../relay/README.md) on a schedule.
 
 ### Features
 Optional features:
@@ -9,20 +9,12 @@ Optional features:
 [`metrics-prometheus`]: https://crates.io/crates/metrics-exporter-prometheus
 
 #### API
-For details about the API see [here](./API.md). 
+For details about the API see [here](./API.md).
 
 #### How to build
 ```shell
-~ cargo build -p relay --release
+~ cargo build -p scheduler --release
 ```
-
-#### Clients
-Here is a list of existing clients.
-
-| Language | Description                 |
-|----------|-----------------------------|
-| [Go](https://github.com/go-playground/relay-client-go)   | Go low & high level client. |
-
 
 #### License
 
