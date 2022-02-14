@@ -6,10 +6,10 @@ for running jobs and clients for each.
 #### Crates
 See details for each crate.
 
-| Crate                      | Description                                            |
-|----------------------------|--------------------------------------------------------|
-| [relay](./relay/README.md) | No nonsense horizontally scalable, ordered Job Runner. |
-
+| Crate                              | Description                                            |
+|------------------------------------|--------------------------------------------------------|
+| [relay](./relay/README.md)         | No nonsense horizontally scalable, ordered Job Runner. |
+| [scheduler](./scheduler/README.md) | Cron backed Job Scheduler for Relay Jobs.              |
 
 #### License
 

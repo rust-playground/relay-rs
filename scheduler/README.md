@@ -16,6 +16,11 @@ For details about the API see [here](./API.md).
 ~ cargo build -p scheduler --release
 ```
 
+#### Clients
+Here is a list of existing clients.
+
+Under development.
+
 #### License
 
 <sup>
