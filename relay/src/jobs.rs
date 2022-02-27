@@ -1,3 +1,5 @@
+use anydate::serde::deserialize::anydate_utc_option;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use thiserror::Error;
@@ -36,6 +38,12 @@ pub struct Job {
     /// request.
     #[serde(skip_deserializing)]
     pub state: Option<Box<RawValue>>,
+
+    /// With this you can optionally schedule/set a Job to be run only at a specific time in the
+    /// future. This option should mainly be used for one-time jobs and scheduled jobs that have
+    /// the option of being self-perpetuated in combination with the continue endpoint.
+    #[serde(default, deserialize_with = "anydate_utc_option")]
+    pub run_at: Option<DateTime<Utc>>,
 }
 
 /// The Job Result.

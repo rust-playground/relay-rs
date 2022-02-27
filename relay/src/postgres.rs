@@ -1,6 +1,6 @@
 #![allow(clippy::cast_possible_truncation)]
 use crate::{Error, Job, JobId, Queue, Result};
-use chrono::Utc;
+use chrono::{NaiveDateTime, TimeZone, Utc};
 use log::LevelFilter;
 use metrics::counter;
 use serde_json::value::RawValue;
@@ -91,8 +91,13 @@ impl PgStore {
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     pub async fn enqueue(&self, job: &Job) -> Result<()> {
         let now = Utc::now();
+        let run_at = if let Some(run_at) = job.run_at {
+            run_at
+        } else {
+            now
+        };
 
-        sqlx::query("INSERT INTO jobs (id, queue, timeout, max_retries, retries_remaining, data, updated_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)")
+        sqlx::query("INSERT INTO jobs (id, queue, timeout, max_retries, retries_remaining, data, updated_at, created_at, run_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)")
             .bind(&job.id)
             .bind(&job.queue)
             .bind(PgInterval{
@@ -105,6 +110,7 @@ impl PgStore {
             .bind(Json(&job.payload))
             .bind(&now)
             .bind(&now)
+            .bind(&run_at)
             .execute(&self.pool)
             .await
             .map_err(|e| {
@@ -166,8 +172,9 @@ impl PgStore {
                    FROM jobs
                    WHERE
                         queue=$1 AND
-                        in_flight=false
-                   ORDER BY created_at ASC
+                        in_flight=false AND
+                        run_at <= NOW()
+                   ORDER BY run_at ASC
                    LIMIT 1
                    FOR UPDATE SKIP LOCKED
                ) subquery
@@ -179,7 +186,8 @@ impl PgStore {
                          j.timeout,
                          j.max_retries,
                          j.data,
-                         j.state
+                         j.state,
+                         j.run_at
             "#,
         )
         .bind(queue)
@@ -188,6 +196,7 @@ impl PgStore {
             let payload: Json<Box<RawValue>> = row.get(4);
             let state: Option<Json<Box<RawValue>>> = row.get(5);
             let timeout: PgInterval = row.get(2);
+            let run_at: NaiveDateTime = row.get(6);
 
             Job {
                 id: row.get(0),
@@ -198,6 +207,7 @@ impl PgStore {
                 state: state.map(|state| match state {
                     Json(state) => state,
                 }),
+                run_at: Some(Utc.from_utc_datetime(&run_at)),
             }
         })
         .fetch_optional(&self.pool)
