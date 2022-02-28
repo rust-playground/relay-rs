@@ -305,7 +305,7 @@ async fn reschedule(data: web::Data<Data>, job: web::Json<Job>) -> HttpResponse 
                 }
             }
             Error::JobNotFound { .. } => {
-                HttpResponse::build(StatusCode::BAD_REQUEST).body(e.to_string())
+                HttpResponse::build(StatusCode::NOT_FOUND).body(e.to_string())
             }
         }
     } else {

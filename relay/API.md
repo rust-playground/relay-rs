@@ -149,7 +149,7 @@ NOTE: The body of the response will have more detail about the specific error.
 |-------|-----------------------------------------------------------------------------|
 | 202   | Job enqueued and accepted for processing.                                   |
 | 400   | For a bad/ill-formed request.                                               |
-| 409   | An conflicting Job already exists with the provided id and queue.           |
+| 404   | Job was not found for updating.                                             |
 | 429   | A retryable error occurred. Most likely the backing storage having issues.  |
 | 422   | A permanent error has occurred.                                             |
 | 500   | An unknown error has occurred server side.                                  |
