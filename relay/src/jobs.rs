@@ -41,7 +41,7 @@ pub struct Job {
 
     /// With this you can optionally schedule/set a Job to be run only at a specific time in the
     /// future. This option should mainly be used for one-time jobs and scheduled jobs that have
-    /// the option of being self-perpetuated in combination with the continue endpoint.
+    /// the option of being self-perpetuated in combination with the reschedule endpoint.
     #[serde(default, deserialize_with = "anydate_utc_option")]
     pub run_at: Option<DateTime<Utc>>,
 }
