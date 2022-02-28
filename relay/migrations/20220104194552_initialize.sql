@@ -10,9 +10,10 @@ CREATE TABLE IF NOT EXISTS jobs (
     expires_at   timestamp without time zone,
     updated_at   timestamp without time zone NOT NULL,
     created_at   timestamp without time zone NOT NULL,
+    run_at       timestamp without time zone NOT NULL,
     PRIMARY KEY (queue, id)
 );
-CREATE INDEX IF NOT EXISTS idx_queue_in_flight_created_at ON jobs (queue, in_flight, created_at);
+CREATE INDEX IF NOT EXISTS idx_queue_in_flight_created_at ON jobs (queue, in_flight, run_at);
 CREATE INDEX IF NOT EXISTS idx_queue_expires_remain ON jobs (in_flight, expires_at, retries_remaining);
 
 CREATE TABLE IF NOT EXISTS internal_state (

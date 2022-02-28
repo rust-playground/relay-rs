@@ -1,6 +1,6 @@
 #![allow(clippy::cast_possible_truncation)]
 use crate::{Error, Job, JobId, Queue, Result};
-use chrono::Utc;
+use chrono::{NaiveDateTime, TimeZone, Utc};
 use log::LevelFilter;
 use metrics::counter;
 use serde_json::value::RawValue;
@@ -91,8 +91,13 @@ impl PgStore {
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     pub async fn enqueue(&self, job: &Job) -> Result<()> {
         let now = Utc::now();
+        let run_at = if let Some(run_at) = job.run_at {
+            run_at
+        } else {
+            now
+        };
 
-        sqlx::query("INSERT INTO jobs (id, queue, timeout, max_retries, retries_remaining, data, updated_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)")
+        sqlx::query("INSERT INTO jobs (id, queue, timeout, max_retries, retries_remaining, data, updated_at, created_at, run_at) VALUES ($1, $2, $3, $4, $4, $5, $6, $6, $7)")
             .bind(&job.id)
             .bind(&job.queue)
             .bind(PgInterval{
@@ -101,10 +106,9 @@ impl PgStore {
                 microseconds: i64::from(job.timeout )*1_000_000
             }  )
             .bind(job.max_retries)
-            .bind(job.max_retries)
             .bind(Json(&job.payload))
             .bind(&now)
-            .bind(&now)
+            .bind(&run_at)
             .execute(&self.pool)
             .await
             .map_err(|e| {
@@ -166,8 +170,9 @@ impl PgStore {
                    FROM jobs
                    WHERE
                         queue=$1 AND
-                        in_flight=false
-                   ORDER BY created_at ASC
+                        in_flight=false AND
+                        run_at <= NOW()
+                   ORDER BY run_at ASC
                    LIMIT 1
                    FOR UPDATE SKIP LOCKED
                ) subquery
@@ -179,7 +184,8 @@ impl PgStore {
                          j.timeout,
                          j.max_retries,
                          j.data,
-                         j.state
+                         j.state,
+                         j.run_at
             "#,
         )
         .bind(queue)
@@ -188,6 +194,7 @@ impl PgStore {
             let payload: Json<Box<RawValue>> = row.get(4);
             let state: Option<Json<Box<RawValue>>> = row.get(5);
             let timeout: PgInterval = row.get(2);
+            let run_at: NaiveDateTime = row.get(6);
 
             Job {
                 id: row.get(0),
@@ -198,6 +205,7 @@ impl PgStore {
                 state: state.map(|state| match state {
                     Json(state) => state,
                 }),
+                run_at: Some(Utc.from_utc_datetime(&run_at)),
             }
         })
         .fetch_optional(&self.pool)
@@ -249,6 +257,70 @@ impl PgStore {
             Err(Error::JobNotFound {
                 job_id: job_id.to_string(),
                 queue: queue.to_string(),
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Reschedules the an existing in-flight Job to be run again with the provided new information.
+    ///
+    /// The Jobs queue and id must match an existing in-flight Job. This is primarily used to
+    /// schedule a new/the next run of a singleton Jon. This provides the ability for
+    /// self-perpetuating scheduled jobs.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if there is any communication issues with the backend Postgres DB.
+    pub async fn reschedule(&self, job: &Job) -> Result<()> {
+        let now = Utc::now();
+        let run_at = if let Some(run_at) = job.run_at {
+            run_at
+        } else {
+            now
+        };
+
+        let rows_affected = sqlx::query(
+            r#"
+                UPDATE jobs
+                SET
+                    timeout = $3,
+                    max_retries = $4,
+                    retries_remaining = $4,
+                    data = $5,
+                    updated_at = $6,
+                    created_at = $6,
+                    run_at = $7,
+                    in_flight = false
+                WHERE
+                    queue=$1 AND
+                    id=$2 AND
+                    in_flight=true
+                "#,
+        )
+        .bind(&job.queue)
+        .bind(&job.id)
+        .bind(PgInterval {
+            months: 0,
+            days: 0,
+            microseconds: i64::from(job.timeout) * 1_000_000,
+        })
+        .bind(job.max_retries)
+        .bind(Json(&job.payload))
+        .bind(&now)
+        .bind(&run_at)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| Error::Postgres {
+            message: e.to_string(),
+            is_retryable: is_retryable(e),
+        })?
+        .rows_affected();
+
+        if rows_affected == 0 {
+            Err(Error::JobNotFound {
+                job_id: job.id.to_string(),
+                queue: job.queue.to_string(),
             })
         } else {
             Ok(())
