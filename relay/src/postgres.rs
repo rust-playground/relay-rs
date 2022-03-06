@@ -132,6 +132,72 @@ impl PgStore {
         Ok(())
     }
 
+    /// Enqueues a batch of Jobs to be processed in a single write transaction.
+    ///
+    /// NOTE: That this function will not return an error for conflicts in Job ID, but rather
+    ///       silently drop the record using an `ON CONFLICT DO NOTHING`. If you need to have a
+    ///       Conflict error returned it is recommended to use the `enqueue` function for a single
+    ///       Job instead.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if there is any communication issues with the backend Postgres DB.
+    pub async fn enqueue_batch(&self, jobs: &[Job]) -> Result<()> {
+        let mut transaction = self.pool.begin().await.map_err(|e| Error::Postgres {
+            message: e.to_string(),
+            is_retryable: is_retryable(e),
+        })?;
+
+        for job in jobs {
+            let now = Utc::now();
+            let run_at = if let Some(run_at) = job.run_at {
+                run_at
+            } else {
+                now
+            };
+
+            sqlx::query(
+                r#"INSERT INTO jobs ( 
+                          id, 
+                          queue, 
+                          timeout, 
+                          max_retries, 
+                          retries_remaining, 
+                          data, 
+                          updated_at, 
+                          created_at, 
+                          run_at
+                        ) 
+                        VALUES ($1, $2, $3, $4, $4, $5, $6, $6, $7)
+                        ON CONFLICT DO NOTHING"#,
+            )
+            .bind(&job.id)
+            .bind(&job.queue)
+            .bind(PgInterval {
+                months: 0,
+                days: 0,
+                microseconds: i64::from(job.timeout) * 1_000_000,
+            })
+            .bind(job.max_retries)
+            .bind(Json(&job.payload))
+            .bind(&now)
+            .bind(&run_at)
+            .execute(&mut transaction)
+            .await
+            .map_err(|e| Error::Postgres {
+                message: e.to_string(),
+                is_retryable: is_retryable(e),
+            })?;
+        }
+
+        transaction.commit().await.map_err(|e| Error::Postgres {
+            message: e.to_string(),
+            is_retryable: is_retryable(e),
+        })?;
+
+        Ok(())
+    }
+
     /// Removed the job from the database.
     ///
     /// # Errors
@@ -156,8 +222,8 @@ impl PgStore {
     /// # Errors
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
-    pub async fn next(&self, queue: &Queue) -> Result<Option<Job>> {
-        let job = sqlx::query(
+    pub async fn next(&self, queue: &Queue, num_jobs: u32) -> Result<Option<Vec<Job>>> {
+        let jobs = sqlx::query(
             r#"
                UPDATE jobs j
                SET in_flight=true,
@@ -173,7 +239,7 @@ impl PgStore {
                         in_flight=false AND
                         run_at <= NOW()
                    ORDER BY run_at ASC
-                   LIMIT 1
+                   LIMIT $2
                    FOR UPDATE SKIP LOCKED
                ) subquery
                WHERE
@@ -189,6 +255,7 @@ impl PgStore {
             "#,
         )
         .bind(queue)
+        .bind(num_jobs)
         .map(|row: PgRow| {
             // map the row into a user-defined domain type
             let payload: Json<Box<RawValue>> = row.get(4);
@@ -208,14 +275,18 @@ impl PgStore {
                 run_at: Some(Utc.from_utc_datetime(&run_at)),
             }
         })
-        .fetch_optional(&self.pool)
+        .fetch_all(&self.pool)
         .await
         .map_err(|e| Error::Postgres {
             message: e.to_string(),
             is_retryable: is_retryable(e),
         })?;
 
-        Ok(job)
+        if jobs.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(jobs))
+        }
     }
 
     /// Updates the existing in-flight job by incrementing it's `updated_at` and option state.
