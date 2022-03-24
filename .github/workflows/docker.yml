@@ -1,6 +1,11 @@
 name: Docker Build
 
-on: push
+on:
+  push:
+    branches:
+      - "*"
+    tags:
+      - "v*"
 
 env:
   REGISTRY: ghcr.io
