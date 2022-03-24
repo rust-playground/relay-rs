@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:experimental
 
-FROM rust:1.59 as builder
+FROM rust:1.59-slim-buster as builder
 WORKDIR /src
 
 COPY . .
