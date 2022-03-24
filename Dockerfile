@@ -5,7 +5,7 @@ WORKDIR /src
 
 COPY . .
 RUN --mount=type=cache,target=target \
-    && mkdir -p /out \
+    mkdir -p /out \
     && (cd relay && cargo build -p relay --features metrics-prometheus --release) \
     && mv target/release/relay /out/relay
 
