@@ -2,11 +2,12 @@ name: Docker Build
 
 on: push
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
 jobs:
   docker:
-    env:
-      REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
