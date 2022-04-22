@@ -5,7 +5,6 @@ WORKDIR /src
 
 COPY . .
 RUN --mount=type=cache,target=target \
-    --mount=type=cache,from=rust:1.60-slim-buster,source=/usr/local/cargo,target=/usr/local/cargo \
     mkdir -p /out \
     && (cd relay && cargo build -p relay --features metrics-prometheus --release) \
     && mv target/release/relay /out/relay
