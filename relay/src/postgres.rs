@@ -229,22 +229,18 @@ impl PgStore {
                SET in_flight=true,
                    updated_at=NOW(),
                    expires_at=NOW()+timeout
-               FROM (
+               WHERE iid IN (
                     SELECT
-                        id,
-                        queue
+                        iid
                    FROM jobs
                    WHERE
                         queue=$1 AND
                         in_flight=false AND
                         run_at <= NOW()
                    ORDER BY run_at ASC
-                   LIMIT $2
                    FOR UPDATE SKIP LOCKED
-               ) subquery
-               WHERE
-                   j.queue=subquery.queue AND
-                   j.id=subquery.id
+                   LIMIT $2
+               )
                RETURNING j.id,
                          j.queue,
                          j.timeout,

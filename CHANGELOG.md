@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2022-04-22
+### Fixed
+- Updated job schema to add uuid. This fixes a locking issue when grabbing new items using IN rather than a SELECT FROM.
+
 ## [0.4.0] - 2022-03-14
 ### Added
 - Update deps.
@@ -20,7 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Future Job support using new `run_at` Job field.
 - Reschedule endpoint allowing the Job Runner to manage a unique/singleton Job rescheduling itself.
 
-[Unreleased]: https://github.com/rust-playground/relay-rs/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/rust-playground/relay-rs/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/rust-playground/relay-rs/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/rust-playground/relay-rs/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/rust-playground/relay-rs/compare/55f4ffca5f12ebce195d6b53cf2d2f92c9036614...v0.3.0
 [0.2.0]: https://github.com/rust-playground/relay-rs/commit/55f4ffca5f12ebce195d6b53cf2d2f92c9036614
