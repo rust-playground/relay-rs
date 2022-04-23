@@ -223,15 +223,17 @@ impl PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     pub async fn next(&self, queue: &Queue, num_jobs: u32) -> Result<Option<Vec<Job>>> {
+        // MUST USE CTE WITH `FOR UPDATE SKIP LOCKED LIMIT` otherwise the Postgres Query Planner
+        // CAN optimize the query which will cause MORE updates than the LIMIT specifies within
+        // a nested loop.
+        // See here for details:
+        // https://github.com/feikesteenbergen/demos/blob/19522f66ffb6eb358fe2d532d9bdeae38d4e2a0b/bugs/update_from_correlated.adoc
         let jobs = sqlx::query(
             r#"
-               UPDATE jobs j
-               SET in_flight=true,
-                   updated_at=NOW(),
-                   expires_at=NOW()+timeout
-               WHERE iid IN (
-                    SELECT
-                        iid
+               WITH subquery AS (
+                   SELECT
+                        id,
+                        queue
                    FROM jobs
                    WHERE
                         queue=$1 AND
@@ -241,6 +243,14 @@ impl PgStore {
                    FOR UPDATE SKIP LOCKED
                    LIMIT $2
                )
+               UPDATE jobs j
+               SET in_flight=true,
+                   updated_at=NOW(),
+                   expires_at=NOW()+timeout
+               FROM subquery
+               WHERE
+                   j.queue=subquery.queue AND
+                   j.id=subquery.id
                RETURNING j.id,
                          j.queue,
                          j.timeout,
