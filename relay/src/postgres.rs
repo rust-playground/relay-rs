@@ -227,7 +227,7 @@ impl PgStore {
         // CAN optimize the query which will cause MORE updates than the LIMIT specifies within
         // a nested loop.
         // See here for details:
-        // https://github.com/feikesteenbergen/demos/blob/master/bugs/update_from_correlated.adoc
+        // https://github.com/feikesteenbergen/demos/blob/19522f66ffb6eb358fe2d532d9bdeae38d4e2a0b/bugs/update_from_correlated.adoc
         let jobs = sqlx::query(
             r#"
                WITH subquery AS (
