@@ -8,6 +8,9 @@ Optional features:
 
 [`metrics-prometheus`]: https://crates.io/crates/metrics-exporter-prometheus
 
+#### Requirements
+- Postgres 9.5+
+
 #### API
 For details about the API see [here](./API.md). 
 
