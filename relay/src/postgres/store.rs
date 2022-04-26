@@ -1,73 +1,37 @@
 #![allow(clippy::cast_possible_truncation)]
+
+use crate::postgres::pool::PgPool;
 use crate::{Error, Job, JobId, Queue, Result};
 use chrono::{NaiveDateTime, TimeZone, Utc};
-use log::LevelFilter;
+use deadpool::managed::PoolError;
 use metrics::counter;
 use serde_json::value::RawValue;
+use sqlx::migrate::MigrateError;
 use sqlx::postgres::types::PgInterval;
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgRow};
+use sqlx::postgres::PgRow;
 use sqlx::types::Json;
-use sqlx::{ConnectOptions, Error as SQLXError, Executor, PgPool, Row};
+use sqlx::Connection;
+use sqlx::{Error as SQLXError, Row};
 use std::io::ErrorKind;
-use std::{str::FromStr, time::Duration};
 use tracing::{debug, warn};
 
 /// Postgres backing store
 pub struct PgStore {
-    pool: PgPool,
+    pool: deadpool::managed::Pool<PgPool>,
 }
 
 impl PgStore {
-    /// Creates a new backing store with default settings for Postgres.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if connecting the server or running migrations fails.
-    #[inline]
-    pub async fn default(uri: &str) -> std::result::Result<Self, sqlx::error::Error> {
-        let options = PgConnectOptions::from_str(uri)?
-            .log_statements(LevelFilter::Off)
-            .log_slow_statements(LevelFilter::Warn, Duration::from_secs(1))
-            .clone();
-        Self::new(options).await
-    }
-
-    /// Creates a new backing store with advanced options.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if connecting the server or running migrations fails.
-    #[inline]
-    pub async fn new(options: PgConnectOptions) -> std::result::Result<Self, sqlx::error::Error> {
-        let pool = PgPoolOptions::new()
-            .max_connections(100)
-            .min_connections(10)
-            .connect_timeout(Duration::from_secs(60))
-            .idle_timeout(Duration::from_secs(20))
-            .after_connect(|conn| {
-                Box::pin(async move {
-                    // Insurance as if not at least this isolation mode then some queries are not
-                    // transactional safe. Specifically FOR UPDATE SKIP LOCKED.
-                    conn.execute("SET default_transaction_isolation TO 'read committed'")
-                        .await?;
-                    Ok(())
-                })
-            })
-            .connect_with(options)
-            .await?;
-
-        Self::new_with_pool(pool).await
-    }
-
     /// Creates a new backing store with preconfigured pool
     ///
     /// # Errors
     ///
     /// Will return `Err` if connecting the server or running migrations fails.
     #[inline]
-    pub async fn new_with_pool(pool: PgPool) -> std::result::Result<Self, sqlx::error::Error> {
+    pub async fn new(pool: deadpool::managed::Pool<PgPool>) -> Result<Self> {
         {
-            sqlx::migrate!("./migrations").run(&pool).await?;
+            sqlx::migrate!("./migrations")
+                .run(&mut *pool.get().await?)
+                .await?;
 
             // insert internal records if they don't already exist
             sqlx::query(
@@ -77,7 +41,7 @@ impl PgStore {
             )
             .bind("reap")
             .bind(Utc::now())
-            .execute(&pool)
+            .execute(&mut *pool.get().await?)
             .await?;
         }
 
@@ -109,7 +73,7 @@ impl PgStore {
             .bind(Json(&job.payload))
             .bind(&now)
             .bind(&run_at)
-            .execute(&self.pool)
+            .execute(&mut *self.pool.get().await?)
             .await
             .map_err(|e| {
                 if let sqlx::Error::Database(ref db) = e {
@@ -143,7 +107,8 @@ impl PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     pub async fn enqueue_batch(&self, jobs: &[Job]) -> Result<()> {
-        let mut transaction = self.pool.begin().await.map_err(|e| Error::Postgres {
+        let conn = &mut *self.pool.get().await?;
+        let mut transaction = conn.begin().await.map_err(|e| Error::Postgres {
             message: e.to_string(),
             is_retryable: is_retryable(e),
         })?;
@@ -207,7 +172,7 @@ impl PgStore {
         sqlx::query("DELETE FROM jobs WHERE queue=$1 AND id=$2")
             .bind(queue)
             .bind(job_id)
-            .execute(&self.pool)
+            .execute(&mut *self.pool.get().await?)
             .await
             .map_err(|e| Error::Postgres {
                 message: e.to_string(),
@@ -281,7 +246,7 @@ impl PgStore {
                 run_at: Some(Utc.from_utc_datetime(&run_at)),
             }
         })
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *self.pool.get().await?)
         .await
         .map_err(|e| Error::Postgres {
             message: e.to_string(),
@@ -322,7 +287,7 @@ impl PgStore {
         .bind(queue)
         .bind(job_id)
         .bind(state.map(|state| Some(Json(state))))
-        .execute(&self.pool)
+        .execute(&mut *self.pool.get().await?)
         .await
         .map_err(|e| Error::Postgres {
             message: e.to_string(),
@@ -386,7 +351,7 @@ impl PgStore {
         .bind(Json(&job.payload))
         .bind(&now)
         .bind(&run_at)
-        .execute(&self.pool)
+        .execute(&mut *self.pool.get().await?)
         .await
         .map_err(|e| Error::Postgres {
             message: e.to_string(),
@@ -417,7 +382,7 @@ impl PgStore {
             WHERE last_run <= NOW() - INTERVAL '$1 seconds'"#,
         )
         .bind(interval_seconds)
-        .execute(&self.pool)
+        .execute(&mut *self.pool.get().await?)
         .await
         .map_err(|e| Error::Postgres {
             message: e.to_string(),
@@ -449,7 +414,7 @@ impl PgStore {
                GROUP BY queue
             "#,
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *self.pool.get().await?)
         .await
         .map_err(|e| Error::Postgres {
             message: e.to_string(),
@@ -475,7 +440,7 @@ impl PgStore {
                GROUP BY queue
             "#,
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *self.pool.get().await?)
         .await
         .map_err(|e| Error::Postgres {
             message: e.to_string(),
@@ -525,5 +490,42 @@ fn is_retryable(e: SQLXError) -> bool {
                 | ErrorKind::UnexpectedEof
         ),
         _ => false,
+    }
+}
+
+impl From<PoolError<sqlx::Error>> for Error {
+    fn from(e: PoolError<sqlx::Error>) -> Self {
+        match e {
+            PoolError::Timeout(_) => Error::Postgres {
+                message: e.to_string(),
+                is_retryable: true,
+            },
+            PoolError::Backend(e) => Error::Postgres {
+                message: e.to_string(),
+                is_retryable: is_retryable(e),
+            },
+            _ => Error::Postgres {
+                message: e.to_string(),
+                is_retryable: false,
+            },
+        }
+    }
+}
+
+impl From<MigrateError> for Error {
+    fn from(e: MigrateError) -> Self {
+        Error::Postgres {
+            message: e.to_string(),
+            is_retryable: false,
+        }
+    }
+}
+
+impl From<sqlx::Error> for Error {
+    fn from(e: sqlx::Error) -> Self {
+        Error::Postgres {
+            message: e.to_string(),
+            is_retryable: is_retryable(e),
+        }
     }
 }

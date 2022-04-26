@@ -3,9 +3,10 @@ use anyhow::Context;
 use clap::Parser;
 use log::LevelFilter;
 use relay::http::Server;
-use relay::postgres::PgStore;
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-use sqlx::{ConnectOptions, Executor};
+use relay::postgres::pool::PgPool;
+use relay::postgres::store::PgStore;
+use sqlx::postgres::PgConnectOptions;
+use sqlx::ConnectOptions;
 use std::env;
 use std::str::FromStr;
 use std::time::Duration;
@@ -32,7 +33,7 @@ pub struct Opts {
 
     /// Maximum allowed database connections
     #[clap(long, default_value = "10", env = "DATABASE_MAX_CONNECTIONS")]
-    pub database_max_connections: u32,
+    pub database_max_connections: usize,
 
     /// This time interval, in seconds, between runs checking for retries and failed jobs.
     #[clap(long, default_value = "5", env = "REAP_INTERVAL")]
@@ -75,30 +76,8 @@ async fn main() -> anyhow::Result<()> {
         .log_slow_statements(LevelFilter::Warn, Duration::from_secs(1))
         .clone();
 
-    let min_connections = if opts.database_max_connections < 10 {
-        1
-    } else {
-        10
-    };
-
-    let pool = PgPoolOptions::new()
-        .max_connections(opts.database_max_connections)
-        .min_connections(min_connections)
-        .connect_timeout(Duration::from_secs(30))
-        .idle_timeout(Duration::from_secs(60 * 5))
-        .after_connect(|conn| {
-            Box::pin(async move {
-                // Insurance as if not at least this isolation mode then some queries are not
-                // transactional safe. Specifically FOR UPDATE SKIP LOCKED.
-                conn.execute("SET default_transaction_isolation TO 'read committed'")
-                    .await?;
-                Ok(())
-            })
-        })
-        .connect_with(options)
-        .await?;
-
-    let pg = PgStore::new_with_pool(pool).await?;
+    let pool = PgPool::new(options, opts.database_max_connections)?;
+    let pg = PgStore::new(pool).await?;
 
     Server::run(
         pg,

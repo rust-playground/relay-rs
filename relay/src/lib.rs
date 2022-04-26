@@ -13,6 +13,8 @@ mod jobs;
 
 /// Contains the `HTTP` server exposing the relay functionality.
 pub mod http;
+
+pub use jobs::{Error, Job, JobId, Queue, Result};
+
 /// Postgres backing store for relay functionality.
 pub mod postgres;
-pub use jobs::{Error, Job, JobId, Queue, Result};

@@ -233,7 +233,7 @@
 //! | 422   | A permanent error has occurred.                                             |
 //! | 500   | An unknown error has occurred server side.                                  |
 
-use crate::postgres::PgStore;
+use crate::postgres::store::PgStore;
 use crate::{Error, Job};
 use actix_web::http::StatusCode;
 use actix_web::middleware::Logger;

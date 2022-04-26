@@ -22,6 +22,8 @@ sqlx = { version = "0.5.13", features = ["postgres", "chrono","runtime-tokio-rus
 actix-web = { version = "4.0.1", default-features = false, features = ["compress-gzip", "rustls"] }
 thiserror = "1.0.30"
 anydate = { version = "0.3.0", features = ["serde"] }
+deadpool = { version = "0.9.3", default-features = false, features = ["managed", "rt_tokio_1"] }
+async-trait = "0.1.53"
 
 [features]
 default = []
