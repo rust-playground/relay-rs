@@ -10,6 +10,9 @@ use sqlx::ConnectOptions;
 use std::env;
 use std::str::FromStr;
 use std::time::Duration;
+use tracing::info;
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, Parser)]
 #[clap(version = env!("CARGO_PKG_VERSION"), author = env!("CARGO_PKG_AUTHORS"), about = env!("CARGO_PKG_DESCRIPTION"))]
@@ -53,6 +56,8 @@ async fn main() -> anyhow::Result<()> {
 
     // install global collector configured based on RUST_LOG env var.
     tracing_subscriber::fmt::init();
+
+    info!("Starting relay version {}", VERSION);
 
     let opts: Opts = Opts::parse();
 
