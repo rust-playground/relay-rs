@@ -1,6 +1,6 @@
 #![allow(clippy::cast_possible_truncation)]
 
-use crate::postgres::pool::PgPool;
+use crate::postgres::pool::Connections;
 use crate::{Error, Job, JobId, Queue, Result};
 use chrono::{NaiveDateTime, TimeZone, Utc};
 use deadpool::managed::PoolError;
@@ -16,18 +16,18 @@ use std::io::ErrorKind;
 use tracing::{debug, warn};
 
 /// Postgres backing store
-pub struct PgStore {
-    pool: deadpool::managed::Pool<PgPool>,
+pub struct Backing {
+    pool: deadpool::managed::Pool<Connections>,
 }
 
-impl PgStore {
+impl Backing {
     /// Creates a new backing store with preconfigured pool
     ///
     /// # Errors
     ///
     /// Will return `Err` if connecting the server or running migrations fails.
     #[inline]
-    pub async fn new(pool: deadpool::managed::Pool<PgPool>) -> Result<Self> {
+    pub async fn new(pool: deadpool::managed::Pool<Connections>) -> Result<Self> {
         {
             sqlx::migrate!("./migrations")
                 .run(&mut *pool.get().await?)

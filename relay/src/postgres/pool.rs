@@ -7,13 +7,26 @@ use sqlx::{ConnectOptions, Connection, Error as SqlxError, Executor, PgConnectio
 use std::str::FromStr;
 use std::time::Duration;
 
-type Pool = deadpool::managed::Pool<PgPool>;
+/// Pool represents the managed DB connection pool
+type Pool = deadpool::managed::Pool<Connections>;
 
-pub struct PgPool {
+/// Is the managed DB connection pool
+pub struct Connections {
     options: PgConnectOptions,
 }
 
-impl PgPool {
+impl Connections {
+    /// Creates a new connection pool with default options
+    ///
+    /// # Panics
+    ///
+    /// Will panic on invalid Pool configuration. Since this is not tunable by the user it should be
+    /// infallible.
+    ///
+    /// # Errors
+    ///
+    /// Will return an `Err` if the pool cannot be created.
+    ///
     pub fn default(uri: &str, max_size: usize) -> Result<Pool, sqlx::error::Error> {
         let options = PgConnectOptions::from_str(uri)?
             .log_statements(LevelFilter::Off)
@@ -22,6 +35,17 @@ impl PgPool {
         Self::new(options, max_size)
     }
 
+    /// Creates a new connection pool with a set of options
+    ///
+    /// # Panics
+    ///
+    /// Will panic on invalid Pool configuration. Since this is not tunable by the user it should be
+    /// infallible.
+    ///
+    /// # Errors
+    ///
+    /// Will panic on invalid Pool configuration. Since this is not tunable by the user it should be
+    /// infallible.
     pub fn new(options: PgConnectOptions, max_size: usize) -> Result<Pool, sqlx::error::Error> {
         let pool = Pool::builder(Self { options })
             .runtime(Runtime::Tokio1)
@@ -43,7 +67,7 @@ impl PgPool {
 }
 
 #[async_trait]
-impl Manager for PgPool {
+impl Manager for Connections {
     type Type = PgConnection;
     type Error = SqlxError;
 

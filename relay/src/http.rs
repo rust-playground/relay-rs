@@ -233,7 +233,7 @@
 //! | 422   | A permanent error has occurred.                                             |
 //! | 500   | An unknown error has occurred server side.                                  |
 
-use crate::postgres::store::PgStore;
+use crate::postgres::store::Backing;
 use crate::{Error, Job};
 use actix_web::http::StatusCode;
 use actix_web::middleware::Logger;
@@ -428,7 +428,7 @@ async fn health() -> HttpResponse {
 }
 
 struct Data {
-    pg_store: PgStore,
+    pg_store: Backing,
 }
 
 impl Server {
@@ -443,7 +443,7 @@ impl Server {
     /// Will panic the reaper async thread fails, which can only happen if the timer and channel
     /// both die.
     #[inline]
-    pub async fn run(pg_store: PgStore, addr: &str, reap_interval: Duration) -> anyhow::Result<()> {
+    pub async fn run(pg_store: Backing, addr: &str, reap_interval: Duration) -> anyhow::Result<()> {
         let store = web::Data::new(Data { pg_store });
         let interval_seconds = match i64::try_from(reap_interval.as_secs()) {
             Ok(n) => n,

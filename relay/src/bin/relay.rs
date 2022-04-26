@@ -3,8 +3,8 @@ use anyhow::Context;
 use clap::Parser;
 use log::LevelFilter;
 use relay::http::Server;
-use relay::postgres::pool::PgPool;
-use relay::postgres::store::PgStore;
+use relay::postgres::pool::Connections;
+use relay::postgres::store::Backing;
 use sqlx::postgres::PgConnectOptions;
 use sqlx::ConnectOptions;
 use std::env;
@@ -81,8 +81,8 @@ async fn main() -> anyhow::Result<()> {
         .log_slow_statements(LevelFilter::Warn, Duration::from_secs(1))
         .clone();
 
-    let pool = PgPool::new(options, opts.database_max_connections)?;
-    let pg = PgStore::new(pool).await?;
+    let pool = Connections::new(options, opts.database_max_connections)?;
+    let pg = Backing::new(pool).await?;
 
     Server::run(
         pg,
