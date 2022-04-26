@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3] - 2022-04-26
+### Changed
+- To use custom database connection pool instead of sqlx's buggy one.
+
 ## [0.5.2] - 2022-04-22
 ### Fixed
 - Next update query when under very specific circumstances the Postgres query planner can do the wrong thing. See here for a detailed example https://github.com/feikesteenbergen/demos/blob/19522f66ffb6eb358fe2d532d9bdeae38d4e2a0b/bugs/update_from_correlated.adoc
@@ -35,7 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Future Job support using new `run_at` Job field.
 - Reschedule endpoint allowing the Job Runner to manage a unique/singleton Job rescheduling itself.
 
-[Unreleased]: https://github.com/rust-playground/relay-rs/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/rust-playground/relay-rs/compare/v0.5.3...HEAD
+[0.5.2]: https://github.com/rust-playground/relay-rs/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/rust-playground/relay-rs/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/rust-playground/relay-rs/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/rust-playground/relay-rs/compare/v0.4.0...v0.5.0
