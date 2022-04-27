@@ -50,8 +50,8 @@ impl Connections {
         let pool = Pool::builder(Self { options })
             .runtime(Runtime::Tokio1)
             .max_size(max_size)
-            .create_timeout(Some(Duration::from_secs(60)))
-            .recycle_timeout(Some(Duration::from_secs(60)))
+            .create_timeout(Some(Duration::from_secs(10)))
+            .recycle_timeout(Some(Duration::from_secs(5)))
             .post_create(Hook::async_fn(|conn: &mut PgConnection, _| {
                 Box::pin(async move {
                     conn.execute("SET default_transaction_isolation TO 'read committed'")
