@@ -1,17 +1,17 @@
 #![allow(clippy::cast_possible_truncation)]
 use crate::{Error, Job, JobId, Queue, Result};
-use anyhow::private::kind::TraitKind;
 use chrono::{NaiveDateTime, TimeZone, Utc};
 use deadpool_postgres::{HookError, HookErrorCause, Pool, PoolError};
-use log::LevelFilter;
 use metrics::counter;
 use serde_json::value::RawValue;
 use std::io::ErrorKind;
 use std::ops::DerefMut;
 use std::{io, str::FromStr, time::Duration};
 use tokio_postgres::error::SqlState;
-use tokio_postgres::{Client as PgClient, Row};
+use tokio_postgres::types::Json;
+use tokio_postgres::Row;
 use tracing::{debug, warn};
+use tracing_subscriber::fmt::format;
 
 mod embedded {
     use refinery::embed_migrations;
@@ -58,47 +58,45 @@ impl PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     pub async fn enqueue(&self, job: &Job) -> Result<()> {
-        unimplemented!()
-        // let now = Utc::now();
-        // let run_at = if let Some(run_at) = job.run_at {
-        //     run_at
-        // } else {
-        //     now
-        // };
-        //
-        // sqlx::query("INSERT INTO jobs (id, queue, timeout, max_retries, retries_remaining, data, updated_at, created_at, run_at) VALUES ($1, $2, $3, $4, $4, $5, $6, $6, $7)")
-        //     .bind(&job.id)
-        //     .bind(&job.queue)
-        //     .bind(PgInterval{
-        //         months: 0,
-        //         days: 0,
-        //         microseconds: i64::from(job.timeout )*1_000_000
-        //     }  )
-        //     .bind(job.max_retries)
-        //     .bind(Json(&job.payload))
-        //     .bind(&now)
-        //     .bind(&run_at)
-        //     .execute(&self.pool)
-        //     .await
-        //     .map_err(|e| {
-        //         if let sqlx::Error::Database(ref db) = e {
-        //             if let Some(code) = db.code() {
-        //                 // 23505 = unique_violation
-        //                 if code == "23505" {
-        //                     return Error::JobExists {
-        //                         job_id: job.id.clone(),
-        //                         queue: job.queue.clone(),
-        //                     }
-        //                 }
-        //             }
-        //         }
-        //
-        //         Error::Postgres {
-        //             message: e.to_string(),
-        //             is_retryable: is_retryable(e),
-        //         }
-        //     })?;
-        // Ok(())
+        let now = Utc::now().naive_utc();
+        let run_at = if let Some(run_at) = job.run_at {
+            run_at.naive_utc()
+        } else {
+            now
+        };
+
+        let client = self.pool.get().await?;
+
+        let stmt = client.prepare_cached(r#"
+            INSERT INTO jobs (id, queue, timeout, max_retries, retries_remaining, data, updated_at, created_at, run_at)
+            VALUES ($1, $2, $3::text::interval, $4, $4, $5, $6, $6, $7)"#
+        ).await?;
+
+        client
+            .query(
+                &stmt,
+                &[
+                    &job.id,
+                    &job.queue,
+                    &format!("{}s", job.timeout),
+                    &job.max_retries,
+                    &Json(&job.payload),
+                    &now,
+                    &run_at,
+                ],
+            )
+            .await
+            .map_err(|e| {
+                if let Some(&SqlState::UNIQUE_VIOLATION) = e.code() {
+                    Error::JobExists {
+                        job_id: job.id.clone(),
+                        queue: job.queue.clone(),
+                    }
+                } else {
+                    e.into()
+                }
+            })?;
+        Ok(())
     }
 
     /// Enqueues a batch of Jobs to be processed in a single write transaction.
@@ -112,60 +110,53 @@ impl PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     pub async fn enqueue_batch(&self, jobs: &[Job]) -> Result<()> {
-        unimplemented!();
-        // let mut transaction = self.pool.begin().await.map_err(|e| Error::Postgres {
-        //     message: e.to_string(),
-        //     is_retryable: is_retryable(e),
-        // })?;
-        //
-        // for job in jobs {
-        //     let now = Utc::now();
-        //     let run_at = if let Some(run_at) = job.run_at {
-        //         run_at
-        //     } else {
-        //         now
-        //     };
-        //
-        //     sqlx::query(
-        //         r#"INSERT INTO jobs (
-        //                   id,
-        //                   queue,
-        //                   timeout,
-        //                   max_retries,
-        //                   retries_remaining,
-        //                   data,
-        //                   updated_at,
-        //                   created_at,
-        //                   run_at
-        //                 )
-        //                 VALUES ($1, $2, $3, $4, $4, $5, $6, $6, $7)
-        //                 ON CONFLICT DO NOTHING"#,
-        //     )
-        //     .bind(&job.id)
-        //     .bind(&job.queue)
-        //     .bind(PgInterval {
-        //         months: 0,
-        //         days: 0,
-        //         microseconds: i64::from(job.timeout) * 1_000_000,
-        //     })
-        //     .bind(job.max_retries)
-        //     .bind(Json(&job.payload))
-        //     .bind(&now)
-        //     .bind(&run_at)
-        //     .execute(&mut transaction)
-        //     .await
-        //     .map_err(|e| Error::Postgres {
-        //         message: e.to_string(),
-        //         is_retryable: is_retryable(e),
-        //     })?;
-        // }
-        //
-        // transaction.commit().await.map_err(|e| Error::Postgres {
-        //     message: e.to_string(),
-        //     is_retryable: is_retryable(e),
-        // })?;
-        //
-        // Ok(())
+        let mut client = self.pool.get().await?;
+        let transaction = client.transaction().await?;
+
+        let stmt = transaction
+            .prepare_cached(
+                r#"INSERT INTO jobs (
+                          id,
+                          queue,
+                          timeout,
+                          max_retries,
+                          retries_remaining,
+                          data,
+                          updated_at,
+                          created_at,
+                          run_at
+                        )
+                        VALUES ($1, $2, $3::text::interval, $4, $4, $5, $6, $6, $7)
+                        ON CONFLICT DO NOTHING"#,
+            )
+            .await?;
+
+        for job in jobs {
+            let now = Utc::now().naive_utc();
+            let run_at = if let Some(run_at) = job.run_at {
+                run_at.naive_utc()
+            } else {
+                now
+            };
+
+            transaction
+                .execute(
+                    &stmt,
+                    &[
+                        &job.id,
+                        &job.queue,
+                        &format!("{}s", job.timeout),
+                        &job.max_retries,
+                        &Json(&job.payload),
+                        &now,
+                        &run_at,
+                    ],
+                )
+                .await?;
+        }
+
+        transaction.commit().await?;
+        Ok(())
     }
 
     /// Removed the job from the database.
@@ -384,7 +375,7 @@ impl PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     pub async fn reap_timeouts(&self, interval_seconds: i64) -> Result<()> {
-        let mut client = self.pool.get().await?;
+        let client = self.pool.get().await?;
 
         let stmt = client
             .prepare_cached(

@@ -2,18 +2,14 @@
 use anyhow::Context;
 use clap::Parser;
 use deadpool_postgres::{
-    ClientWrapper, Config, Hook, HookError, HookErrorCause, Manager, ManagerConfig, Pool,
-    PoolConfig, RecyclingMethod, Runtime,
+    ClientWrapper, Hook, HookError, HookErrorCause, Manager, ManagerConfig, Pool, RecyclingMethod,
 };
-use log::LevelFilter;
 use relay::http::Server;
 use relay::postgres::PgStore;
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-use sqlx::{ConnectOptions, Executor, PgConnection};
 use std::env;
 use std::str::FromStr;
 use std::time::Duration;
-use tokio_postgres::{Config as PostgresConfig, Connection, NoTls};
+use tokio_postgres::{Config as PostgresConfig, NoTls};
 
 #[derive(Debug, Parser)]
 #[clap(version = env!("CARGO_PKG_VERSION"), author = env!("CARGO_PKG_AUTHORS"), about = env!("CARGO_PKG_DESCRIPTION"))]

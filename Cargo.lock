@@ -1784,7 +1784,6 @@ dependencies = [
  "refinery",
  "serde",
  "serde_json",
- "sqlx",
  "thiserror",
  "tokio",
  "tokio-postgres",
