@@ -1,14 +1,19 @@
 #[allow(unused_imports)]
 use anyhow::Context;
 use clap::Parser;
+use deadpool_postgres::{
+    ClientWrapper, Config, Hook, HookError, HookErrorCause, Manager, ManagerConfig, Pool,
+    PoolConfig, RecyclingMethod, Runtime,
+};
 use log::LevelFilter;
 use relay::http::Server;
 use relay::postgres::PgStore;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-use sqlx::{ConnectOptions, Executor};
+use sqlx::{ConnectOptions, Executor, PgConnection};
 use std::env;
 use std::str::FromStr;
 use std::time::Duration;
+use tokio_postgres::{Config as PostgresConfig, Connection, NoTls};
 
 #[derive(Debug, Parser)]
 #[clap(version = env!("CARGO_PKG_VERSION"), author = env!("CARGO_PKG_AUTHORS"), about = env!("CARGO_PKG_DESCRIPTION"))]
@@ -32,7 +37,7 @@ pub struct Opts {
 
     /// Maximum allowed database connections
     #[clap(long, default_value = "10", env = "DATABASE_MAX_CONNECTIONS")]
-    pub database_max_connections: u32,
+    pub database_max_connections: usize,
 
     /// This time interval, in seconds, between runs checking for retries and failed jobs.
     #[clap(long, default_value = "5", env = "REAP_INTERVAL")]
@@ -70,33 +75,32 @@ async fn main() -> anyhow::Result<()> {
         .install()
         .context("failed to install Prometheus recorder")?;
 
-    let options = PgConnectOptions::from_str(&opts.database_url)?
-        .log_statements(LevelFilter::Off)
-        .log_slow_statements(LevelFilter::Warn, Duration::from_secs(1))
-        .clone();
-
-    let min_connections = if opts.database_max_connections < 10 {
-        1
-    } else {
-        10
-    };
-
-    let pool = PgPoolOptions::new()
-        .max_connections(opts.database_max_connections)
-        .min_connections(min_connections)
-        .connect_timeout(Duration::from_secs(30))
-        .idle_timeout(Duration::from_secs(60 * 5))
-        .after_connect(|conn| {
+    let mut pg_config = PostgresConfig::from_str(&opts.database_url)?;
+    if pg_config.get_connect_timeout().is_none() {
+        pg_config.connect_timeout(Duration::from_secs(5));
+    }
+    if pg_config.get_application_name().is_none() {
+        pg_config.application_name("relay");
+    }
+    let mgr = Manager::from_config(
+        pg_config,
+        NoTls,
+        ManagerConfig {
+            recycling_method: RecyclingMethod::Fast,
+        },
+    );
+    let pool = Pool::builder(mgr)
+        .max_size(opts.database_max_connections)
+        .post_create(Hook::async_fn(|client: &mut ClientWrapper, _| {
             Box::pin(async move {
-                // Insurance as if not at least this isolation mode then some queries are not
-                // transactional safe. Specifically FOR UPDATE SKIP LOCKED.
-                conn.execute("SET default_transaction_isolation TO 'read committed'")
-                    .await?;
+                client
+                    .simple_query("SET default_transaction_isolation TO 'read committed'")
+                    .await
+                    .map_err(|e| HookError::Abort(HookErrorCause::Backend(e)))?;
                 Ok(())
             })
-        })
-        .connect_with(options)
-        .await?;
+        }))
+        .build()?;
 
     let pg = PgStore::new_with_pool(pool).await?;
 
