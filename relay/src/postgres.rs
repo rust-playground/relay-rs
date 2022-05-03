@@ -1,17 +1,15 @@
 #![allow(clippy::cast_possible_truncation)]
 use crate::{Error, Job, JobId, Queue, Result};
-use chrono::{NaiveDateTime, TimeZone, Utc};
+use chrono::{TimeZone, Utc};
 use deadpool_postgres::{HookError, HookErrorCause, Pool, PoolError};
 use metrics::counter;
 use pg_interval::Interval;
 use serde_json::value::RawValue;
+use std::io;
 use std::io::ErrorKind;
 use std::ops::DerefMut;
-use std::{io, str::FromStr, time::Duration};
 use tokio_postgres::error::SqlState;
-use tokio_postgres::row::RowIndex;
 use tokio_postgres::types::{Json, ToSql};
-use tokio_postgres::Row;
 use tokio_stream::{Stream, StreamExt};
 use tracing::{debug, warn};
 
