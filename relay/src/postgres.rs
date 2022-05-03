@@ -8,6 +8,7 @@ use std::io::ErrorKind;
 use std::ops::DerefMut;
 use std::{io, str::FromStr, time::Duration};
 use tokio_postgres::error::SqlState;
+use tokio_postgres::row::RowIndex;
 use tokio_postgres::types::{Json, ToSql};
 use tokio_postgres::Row;
 use tokio_stream::StreamExt;
@@ -231,23 +232,18 @@ impl PgStore {
         while let Some(row) = stream.next().await {
             let row = row?;
 
-            // dbg!(row);
-            // map the row into a user-defined domain type
-            let payload: Json<Box<RawValue>> = row.get(4);
-            let state: Option<Json<Box<RawValue>>> = row.get(5);
-            let timeout: i32 = row.get(2);
-            let run_at: NaiveDateTime = row.get(6);
-
             let job = Job {
                 id: row.get(0),
                 queue: row.get(1),
-                timeout,
+                timeout: row.get(2),
                 max_retries: row.get(3),
-                payload: payload.0,
-                state: state.map(|state| match state {
-                    Json(state) => state,
-                }),
-                run_at: Some(Utc.from_utc_datetime(&run_at)),
+                payload: row.get::<usize, Json<Box<RawValue>>>(4).0,
+                state: row
+                    .get::<usize, Option<Json<Box<RawValue>>>>(5)
+                    .map(|state| match state {
+                        Json(state) => state,
+                    }),
+                run_at: Some(Utc.from_utc_datetime(&row.get(6))),
             };
             jobs.push(job);
         }
@@ -531,10 +527,4 @@ impl From<tokio_postgres::Error> for Error {
             is_retryable: is_retryable(e),
         }
     }
-}
-
-fn slice_iter<'a>(
-    s: &'a [&'a (dyn ToSql + Sync)],
-) -> impl ExactSizeIterator<Item = &'a dyn ToSql> + 'a {
-    s.iter().map(|s| *s as _)
 }

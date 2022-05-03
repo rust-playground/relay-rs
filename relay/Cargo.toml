@@ -25,6 +25,7 @@ tokio-postgres = {version = "0.7.6", features = ["with-chrono-0_4", "with-uuid-1
 deadpool-postgres = "0.10.2"
 refinery = {version = "0.8.4", features = ["tokio-postgres"]}
 tokio-stream = "0.1.8"
+pg_interval = "0.4.1"
 
 [features]
 default = []
