@@ -7,7 +7,6 @@ use pg_interval::Interval;
 use serde_json::value::RawValue;
 use std::io;
 use std::io::ErrorKind;
-use std::ops::DerefMut;
 use tokio_postgres::error::SqlState;
 use tokio_postgres::types::{Json, ToSql};
 use tokio_stream::{Stream, StreamExt};
@@ -34,7 +33,7 @@ impl PgStore {
         let mut client = pool.get().await?;
         embedded::migrations::runner()
             .set_migration_table_name("_relay_rs_migrations")
-            .run_async(client.deref_mut().deref_mut())
+            .run_async(&mut **client)
             .await?;
 
         client
@@ -75,7 +74,7 @@ impl PgStore {
                 &[
                     &job.id,
                     &job.queue,
-                    &Interval::from_duration(chrono::Duration::seconds(job.timeout as i64)),
+                    &Interval::from_duration(chrono::Duration::seconds(i64::from(job.timeout))),
                     &job.max_retries,
                     &Json(&job.payload),
                     &now,
@@ -142,7 +141,7 @@ impl PgStore {
                     &[
                         &job.id,
                         &job.queue,
-                        &Interval::from_duration(chrono::Duration::seconds(job.timeout as i64)),
+                        &Interval::from_duration(chrono::Duration::seconds(i64::from(job.timeout))),
                         &job.max_retries,
                         &Json(&job.payload),
                         &now,
@@ -348,7 +347,7 @@ impl PgStore {
                 &[
                     &job.queue,
                     &job.id,
-                    &Interval::from_duration(chrono::Duration::seconds(job.timeout as i64)),
+                    &Interval::from_duration(chrono::Duration::seconds(i64::from(job.timeout))),
                     &job.max_retries,
                     &Json(&job.payload),
                     &now,
@@ -466,11 +465,11 @@ impl PgStore {
 fn is_retryable(e: tokio_postgres::Error) -> bool {
     match e.code() {
         Some(
-            &SqlState::IO_ERROR
-            | &SqlState::TOO_MANY_CONNECTIONS
-            | &SqlState::LOCK_NOT_AVAILABLE
-            | &SqlState::QUERY_CANCELED
-            | &SqlState::SYSTEM_ERROR,
+            &(SqlState::IO_ERROR
+            | SqlState::TOO_MANY_CONNECTIONS
+            | SqlState::LOCK_NOT_AVAILABLE
+            | SqlState::QUERY_CANCELED
+            | SqlState::SYSTEM_ERROR),
         ) => true,
         Some(_) => false,
         None => {
@@ -479,17 +478,17 @@ fn is_retryable(e: tokio_postgres::Error) -> bool {
                 .as_ref()
                 .and_then(|e| e.downcast_ref::<io::Error>())
             {
-                match e.kind() {
+                matches!(
+                    e.kind(),
                     ErrorKind::ConnectionReset
-                    | ErrorKind::ConnectionAborted
-                    | ErrorKind::NotConnected
-                    | ErrorKind::WouldBlock
-                    | ErrorKind::TimedOut
-                    | ErrorKind::WriteZero
-                    | ErrorKind::Interrupted
-                    | ErrorKind::UnexpectedEof => true,
-                    _ => false,
-                }
+                        | ErrorKind::ConnectionAborted
+                        | ErrorKind::NotConnected
+                        | ErrorKind::WouldBlock
+                        | ErrorKind::TimedOut
+                        | ErrorKind::WriteZero
+                        | ErrorKind::Interrupted
+                        | ErrorKind::UnexpectedEof
+                )
             } else {
                 false
             }
