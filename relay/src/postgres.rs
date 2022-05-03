@@ -3,6 +3,7 @@ use crate::{Error, Job, JobId, Queue, Result};
 use chrono::{NaiveDateTime, TimeZone, Utc};
 use deadpool_postgres::{HookError, HookErrorCause, Pool, PoolError};
 use metrics::counter;
+use pg_interval::Interval;
 use serde_json::value::RawValue;
 use std::io::ErrorKind;
 use std::ops::DerefMut;
@@ -70,7 +71,7 @@ impl PgStore {
 
         let stmt = client.prepare_cached(r#"
             INSERT INTO jobs (id, queue, timeout, max_retries, retries_remaining, data, updated_at, created_at, run_at)
-            VALUES ($1, $2, $3::text::interval, $4, $4, $5, $6, $6, $7)"#
+            VALUES ($1, $2, $3, $4, $4, $5, $6, $6, $7)"#
         ).await?;
 
         client
@@ -79,7 +80,7 @@ impl PgStore {
                 &[
                     &job.id,
                     &job.queue,
-                    &format!("{}s", job.timeout),
+                    &Interval::from_duration(chrono::Duration::seconds(job.timeout as i64)),
                     &job.max_retries,
                     &Json(&job.payload),
                     &now,
@@ -127,7 +128,7 @@ impl PgStore {
                           created_at,
                           run_at
                         )
-                        VALUES ($1, $2, $3::text::interval, $4, $4, $5, $6, $6, $7)
+                        VALUES ($1, $2, $3, $4, $4, $5, $6, $6, $7)
                         ON CONFLICT DO NOTHING"#,
             )
             .await?;
@@ -146,7 +147,7 @@ impl PgStore {
                     &[
                         &job.id,
                         &job.queue,
-                        &format!("{}s", job.timeout),
+                        &Interval::from_duration(chrono::Duration::seconds(job.timeout as i64)),
                         &job.max_retries,
                         &Json(&job.payload),
                         &now,
@@ -267,38 +268,37 @@ impl PgStore {
         job_id: &str,
         state: Option<Box<RawValue>>,
     ) -> Result<()> {
-        unimplemented!();
-        // let rows_affected = sqlx::query(
-        //     r#"
-        //        UPDATE jobs
-        //        SET state=$3,
-        //            updated_at=NOW(),
-        //            expires_at=NOW()+timeout
-        //        WHERE
-        //            queue=$1 AND
-        //            id=$2 AND
-        //            in_flight=true
-        //     "#,
-        // )
-        // .bind(queue)
-        // .bind(job_id)
-        // .bind(state.map(|state| Some(Json(state))))
-        // .execute(&self.pool)
-        // .await
-        // .map_err(|e| Error::Postgres {
-        //     message: e.to_string(),
-        //     is_retryable: is_retryable(e),
-        // })?
-        // .rows_affected();
-        //
-        // if rows_affected == 0 {
-        //     Err(Error::JobNotFound {
-        //         job_id: job_id.to_string(),
-        //         queue: queue.to_string(),
-        //     })
-        // } else {
-        //     Ok(())
-        // }
+        let client = self.pool.get().await?;
+        let stmt = client
+            .prepare_cached(
+                r#"
+               UPDATE jobs
+               SET state=$3,
+                   updated_at=NOW(),
+                   expires_at=NOW()+timeout
+               WHERE
+                   queue=$1 AND
+                   id=$2 AND
+                   in_flight=true
+            "#,
+            )
+            .await?;
+
+        let rows_affected = client
+            .execute(
+                &stmt,
+                &[&queue, &job_id, &state.map(|state| Some(Json(state)))],
+            )
+            .await?;
+
+        if rows_affected == 0 {
+            Err(Error::JobNotFound {
+                job_id: job_id.to_string(),
+                queue: queue.to_string(),
+            })
+        } else {
+            Ok(())
+        }
     }
 
     /// Reschedules the an existing in-flight Job to be run again with the provided new information.
