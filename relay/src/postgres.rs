@@ -214,7 +214,7 @@ impl PgStore {
                    j.id=subquery.id
                RETURNING j.id,
                          j.queue,
-                         extract('epoch' from j.timeout)::int,
+                         j.timeout,
                          j.max_retries,
                          j.data,
                          j.state,
@@ -236,7 +236,7 @@ impl PgStore {
             let job = Job {
                 id: row.get(0),
                 queue: row.get(1),
-                timeout: row.get(2),
+                timeout: interval_seconds(row.get::<usize, Interval>(2)),
                 max_retries: row.get(3),
                 payload: row.get::<usize, Json<Box<RawValue>>>(4).0,
                 state: row
@@ -311,59 +311,58 @@ impl PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     pub async fn reschedule(&self, job: &Job) -> Result<()> {
-        unimplemented!();
-        // let now = Utc::now();
-        // let run_at = if let Some(run_at) = job.run_at {
-        //     run_at
-        // } else {
-        //     now
-        // };
-        //
-        // let rows_affected = sqlx::query(
-        //     r#"
-        //         UPDATE jobs
-        //         SET
-        //             timeout = $3,
-        //             max_retries = $4,
-        //             retries_remaining = $4,
-        //             data = $5,
-        //             updated_at = $6,
-        //             created_at = $6,
-        //             run_at = $7,
-        //             in_flight = false
-        //         WHERE
-        //             queue=$1 AND
-        //             id=$2 AND
-        //             in_flight=true
-        //         "#,
-        // )
-        // .bind(&job.queue)
-        // .bind(&job.id)
-        // .bind(PgInterval {
-        //     months: 0,
-        //     days: 0,
-        //     microseconds: i64::from(job.timeout) * 1_000_000,
-        // })
-        // .bind(job.max_retries)
-        // .bind(Json(&job.payload))
-        // .bind(&now)
-        // .bind(&run_at)
-        // .execute(&self.pool)
-        // .await
-        // .map_err(|e| Error::Postgres {
-        //     message: e.to_string(),
-        //     is_retryable: is_retryable(e),
-        // })?
-        // .rows_affected();
-        //
-        // if rows_affected == 0 {
-        //     Err(Error::JobNotFound {
-        //         job_id: job.id.to_string(),
-        //         queue: job.queue.to_string(),
-        //     })
-        // } else {
-        //     Ok(())
-        // }
+        let now = Utc::now().naive_utc();
+        let run_at = if let Some(run_at) = job.run_at {
+            run_at.naive_utc()
+        } else {
+            now
+        };
+
+        let client = self.pool.get().await?;
+        let stmt = client
+            .prepare_cached(
+                r#"
+                UPDATE jobs
+                SET
+                    timeout = $3,
+                    max_retries = $4,
+                    retries_remaining = $4,
+                    data = $5,
+                    updated_at = $6,
+                    created_at = $6,
+                    run_at = $7,
+                    in_flight = false
+                WHERE
+                    queue=$1 AND
+                    id=$2 AND
+                    in_flight=true
+                "#,
+            )
+            .await?;
+
+        let rows_affected = client
+            .execute(
+                &stmt,
+                &[
+                    &job.queue,
+                    &job.id,
+                    &Interval::from_duration(chrono::Duration::seconds(job.timeout as i64)),
+                    &job.max_retries,
+                    &Json(&job.payload),
+                    &now,
+                    &run_at,
+                ],
+            )
+            .await?;
+
+        if rows_affected == 0 {
+            Err(Error::JobNotFound {
+                job_id: job.id.to_string(),
+                queue: job.queue.to_string(),
+            })
+        } else {
+            Ok(())
+        }
     }
 
     /// Reset records to be retries and deletes those that have reached their max.
@@ -414,9 +413,12 @@ impl PgStore {
             )
             .await?;
 
-        let results: Vec<Row> = client.query(&stmt, &[]).await?;
+        let params: &[i32] = &[];
+        let stream = client.query_raw(&stmt, params).await?;
+        tokio::pin!(stream);
 
-        for row in results {
+        while let Some(row) = stream.next().await {
+            let row = row?;
             let queue: String = row.get(0);
             let count: i64 = row.get(1);
             counter!("retries", u64::try_from(count).unwrap_or_default(), "queue" => queue);
@@ -440,9 +442,12 @@ impl PgStore {
             )
             .await?;
 
-        let results: Vec<Row> = client.query(&stmt, &[]).await?;
+        let params: &[i32] = &[];
+        let stream = client.query_raw(&stmt, params).await?;
+        tokio::pin!(stream);
 
-        for row in results {
+        while let Some(row) = stream.next().await {
+            let row = row?;
             let queue: String = row.get(0);
             let count: i64 = row.get(1);
             warn!(
@@ -527,4 +532,12 @@ impl From<tokio_postgres::Error> for Error {
             is_retryable: is_retryable(e),
         }
     }
+}
+
+fn interval_seconds(interval: Interval) -> i32 {
+    let month_secs = interval.months * 30 * 24 * 60 * 60;
+    let day_secs = interval.days * 24 * 60 * 60;
+    let micro_secs = (interval.microseconds / 1_000_000) as i32;
+
+    month_secs + day_secs + micro_secs
 }
