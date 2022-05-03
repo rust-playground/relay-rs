@@ -307,7 +307,7 @@ const fn default_num_jobs() -> u32 {
 async fn next(data: web::Data<Data>, info: web::Query<NextInfo>) -> HttpResponse {
     increment_counter!("http_request", "endpoint" => "next", "queue" => info.queue.clone());
 
-    match data.pg_store.next(&info.queue, info.num_jobs).await {
+    match data.pg_store.next(&info.queue, info.num_jobs as i64).await {
         Err(e) => {
             increment_counter!("errors", "endpoint" => "next", "type" => e.error_type(), "queue" => e.queue());
             if let Error::Postgres { .. } = e {

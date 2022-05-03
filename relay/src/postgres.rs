@@ -8,10 +8,10 @@ use std::io::ErrorKind;
 use std::ops::DerefMut;
 use std::{io, str::FromStr, time::Duration};
 use tokio_postgres::error::SqlState;
-use tokio_postgres::types::Json;
+use tokio_postgres::types::{Json, ToSql};
 use tokio_postgres::Row;
+use tokio_stream::StreamExt;
 use tracing::{debug, warn};
-use tracing_subscriber::fmt::format;
 
 mod embedded {
     use refinery::embed_migrations;
@@ -165,18 +165,12 @@ impl PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     pub async fn remove(&self, queue: &Queue, job_id: &JobId) -> Result<()> {
-        unimplemented!();
-        // sqlx::query("DELETE FROM jobs WHERE queue=$1 AND id=$2")
-        //     .bind(queue)
-        //     .bind(job_id)
-        //     .execute(&self.pool)
-        //     .await
-        //     .map_err(|e| Error::Postgres {
-        //         message: e.to_string(),
-        //         is_retryable: is_retryable(e),
-        //     })?;
-        //
-        // Ok(())
+        let client = self.pool.get().await?;
+        let stmt = client
+            .prepare_cached(r#"DELETE FROM jobs WHERE queue=$1 AND id=$2"#)
+            .await?;
+        client.execute(&stmt, &[&queue, &job_id]).await?;
+        Ok(())
     }
 
     /// Returns the next Job to be executed in order of insert. FIFO.
@@ -184,78 +178,85 @@ impl PgStore {
     /// # Errors
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
-    pub async fn next(&self, queue: &Queue, num_jobs: u32) -> Result<Option<Vec<Job>>> {
-        unimplemented!();
-        // // MUST USE CTE WITH `FOR UPDATE SKIP LOCKED LIMIT` otherwise the Postgres Query Planner
-        // // CAN optimize the query which will cause MORE updates than the LIMIT specifies within
-        // // a nested loop.
-        // // See here for details:
-        // // https://github.com/feikesteenbergen/demos/blob/19522f66ffb6eb358fe2d532d9bdeae38d4e2a0b/bugs/update_from_correlated.adoc
-        // let jobs = sqlx::query(
-        //     r#"
-        //        WITH subquery AS (
-        //            SELECT
-        //                 id,
-        //                 queue
-        //            FROM jobs
-        //            WHERE
-        //                 queue=$1 AND
-        //                 in_flight=false AND
-        //                 run_at <= NOW()
-        //            ORDER BY run_at ASC
-        //            FOR UPDATE SKIP LOCKED
-        //            LIMIT $2
-        //        )
-        //        UPDATE jobs j
-        //        SET in_flight=true,
-        //            updated_at=NOW(),
-        //            expires_at=NOW()+timeout
-        //        FROM subquery
-        //        WHERE
-        //            j.queue=subquery.queue AND
-        //            j.id=subquery.id
-        //        RETURNING j.id,
-        //                  j.queue,
-        //                  j.timeout,
-        //                  j.max_retries,
-        //                  j.data,
-        //                  j.state,
-        //                  j.run_at
-        //     "#,
-        // )
-        // .bind(queue)
-        // .bind(num_jobs)
-        // .map(|row: PgRow| {
-        //     // map the row into a user-defined domain type
-        //     let payload: Json<Box<RawValue>> = row.get(4);
-        //     let state: Option<Json<Box<RawValue>>> = row.get(5);
-        //     let timeout: PgInterval = row.get(2);
-        //     let run_at: NaiveDateTime = row.get(6);
-        //
-        //     Job {
-        //         id: row.get(0),
-        //         queue: row.get(1),
-        //         timeout: (timeout.microseconds / 1_000_000) as i32,
-        //         max_retries: row.get(3),
-        //         payload: payload.0,
-        //         state: state.map(|state| match state {
-        //             Json(state) => state,
-        //         }),
-        //         run_at: Some(Utc.from_utc_datetime(&run_at)),
-        //     }
-        // })
-        // .fetch_all(&self.pool)
-        // .await
-        // .map_err(|e| Error::Postgres {
-        //     message: e.to_string(),
-        //     is_retryable: is_retryable(e),
-        // })?;
-        //
-        // if jobs.is_empty() {
-        //     Ok(None)
-        // } else {
-        //     Ok(Some(jobs))
-        // }
+    pub async fn next(&self, queue: &Queue, num_jobs: i64) -> Result<Option<Vec<Job>>> {
+        let client = self.pool.get().await?;
+
+        // MUST USE CTE WITH `FOR UPDATE SKIP LOCKED LIMIT` otherwise the Postgres Query Planner
+        // CAN optimize the query which will cause MORE updates than the LIMIT specifies within
+        // a nested loop.
+        // See here for details:
+        // https://github.com/feikesteenbergen/demos/blob/19522f66ffb6eb358fe2d532d9bdeae38d4e2a0b/bugs/update_from_correlated.adoc
+        let stmt = client
+            .prepare_cached(
+                r#"
+               WITH subquery AS (
+                   SELECT
+                        id,
+                        queue
+                   FROM jobs
+                   WHERE
+                        queue=$1 AND
+                        in_flight=false AND
+                        run_at <= NOW()
+                   ORDER BY run_at ASC
+                   FOR UPDATE SKIP LOCKED
+                   LIMIT $2
+               )
+               UPDATE jobs j
+               SET in_flight=true,
+                   updated_at=NOW(),
+                   expires_at=NOW()+timeout
+               FROM subquery
+               WHERE
+                   j.queue=subquery.queue AND
+                   j.id=subquery.id
+               RETURNING j.id,
+                         j.queue,
+                         extract('epoch' from j.timeout)::int,
+                         j.max_retries,
+                         j.data,
+                         j.state,
+                         j.run_at
+            "#,
+            )
+            .await?;
+
+        let params: Vec<&(dyn ToSql)> = vec![&queue, &num_jobs];
+        let stream = client.query_raw(&stmt, params).await?;
+
+        tokio::pin!(stream);
+
+        let mut jobs = Vec::new();
+
+        while let Some(row) = stream.next().await {
+            let row = row?;
+
+            // dbg!(row);
+            // map the row into a user-defined domain type
+            let payload: Json<Box<RawValue>> = row.get(4);
+            let state: Option<Json<Box<RawValue>>> = row.get(5);
+            let timeout: i32 = row.get(2);
+            let run_at: NaiveDateTime = row.get(6);
+
+            let job = Job {
+                id: row.get(0),
+                queue: row.get(1),
+                timeout,
+                max_retries: row.get(3),
+                payload: payload.0,
+                state: state.map(|state| match state {
+                    Json(state) => state,
+                }),
+                run_at: Some(Utc.from_utc_datetime(&run_at)),
+            };
+            jobs.push(job);
+        }
+
+        if jobs.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(jobs))
+        }
     }
 
     /// Updates the existing in-flight job by incrementing it's `updated_at` and option state.
@@ -530,4 +531,10 @@ impl From<tokio_postgres::Error> for Error {
             is_retryable: is_retryable(e),
         }
     }
+}
+
+fn slice_iter<'a>(
+    s: &'a [&'a (dyn ToSql + Sync)],
+) -> impl ExactSizeIterator<Item = &'a dyn ToSql> + 'a {
+    s.iter().map(|s| *s as _)
 }
