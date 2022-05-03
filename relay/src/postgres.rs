@@ -228,6 +228,9 @@ impl PgStore {
 
         tokio::pin!(stream);
 
+        // on purpose NOT using num_jobs as the capacity to avoid the potential attack vector of
+        // someone exhausting all memory by sending a large number even if there aren't that many
+        // records in the database.
         let mut jobs = if let Some(size) = stream.size_hint().1 {
             Vec::with_capacity(size)
         } else {
