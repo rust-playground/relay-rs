@@ -12,7 +12,7 @@ use tokio_postgres::error::SqlState;
 use tokio_postgres::row::RowIndex;
 use tokio_postgres::types::{Json, ToSql};
 use tokio_postgres::Row;
-use tokio_stream::StreamExt;
+use tokio_stream::{Stream, StreamExt};
 use tracing::{debug, warn};
 
 mod embedded {
@@ -228,7 +228,11 @@ impl PgStore {
 
         tokio::pin!(stream);
 
-        let mut jobs = Vec::new();
+        let mut jobs = if let Some(size) = stream.size_hint().1 {
+            Vec::with_capacity(size)
+        } else {
+            Vec::new()
+        };
 
         while let Some(row) = stream.next().await {
             let row = row?;
