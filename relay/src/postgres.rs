@@ -31,14 +31,12 @@ impl PgStore {
     /// Will return `Err` if connecting the server or running migrations fails.
     #[inline]
     pub async fn new_with_pool(pool: Pool) -> std::result::Result<Self, anyhow::Error> {
-        // let mut client: &mut PgClient = pool.get().await?.deref_mut().deref_mut();
         let mut client = pool.get().await?;
         embedded::migrations::runner()
+            .set_migration_table_name("_relay_rs_migrations")
             .run_async(client.deref_mut().deref_mut())
             .await?;
-        //     sqlx::migrate!("./migrations").run(&pool).await?;
-        //
-        //     // insert internal records if they don't already exist
+
         client
             .execute(
                 r#"
@@ -47,7 +45,6 @@ impl PgStore {
                 &[&Utc::now().naive_utc()],
             )
             .await?;
-        // }
 
         Ok(Self { pool })
     }
