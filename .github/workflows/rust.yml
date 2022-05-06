@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v1
-          with:
+        with:
             key: ${{ matrix.platform }}-v1
       - run: cargo test --all-features --all-targets
 
@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v1
-          with:
+        with:
             key: ${{ matrix.platform }}-v1
       - run: cargo check --all-features --all-targets
 
@@ -36,6 +36,6 @@ jobs:
       - uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@clippy
       - uses: Swatinem/rust-cache@v1
-          with:
+        with:
             key: ubuntu-latest-v1
       - run: cargo clippy --all-features --tests -- -Dclippy::all -Dclippy::pedantic
