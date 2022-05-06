@@ -6,6 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
 ## [0.5.2] - 2022-04-22
 ### Fixed
 - Next update query when under very specific circumstances the Postgres query planner can do the wrong thing. See here for a detailed example https://github.com/feikesteenbergen/demos/blob/19522f66ffb6eb358fe2d532d9bdeae38d4e2a0b/bugs/update_from_correlated.adoc
