@@ -1,5 +1,5 @@
 #![allow(clippy::cast_possible_truncation)]
-use crate::{Error, Job, JobId, Queue, Result};
+use crate::{Error, Job, Result};
 use chrono::{NaiveDateTime, TimeZone, Utc};
 use log::LevelFilter;
 use metrics::counter;
@@ -189,7 +189,7 @@ impl PgStore {
     /// # Errors
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
-    pub async fn remove(&self, queue: &Queue, job_id: &JobId) -> Result<()> {
+    pub async fn remove(&self, queue: &str, job_id: &str) -> Result<()> {
         sqlx::query("DELETE FROM jobs WHERE queue=$1 AND id=$2")
             .bind(queue)
             .bind(job_id)
@@ -204,7 +204,7 @@ impl PgStore {
     /// # Errors
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
-    pub async fn next(&self, queue: &Queue, num_jobs: u32) -> Result<Option<Vec<Job>>> {
+    pub async fn next(&self, queue: &str, num_jobs: u32) -> Result<Option<Vec<Job>>> {
         // MUST USE CTE WITH `FOR UPDATE SKIP LOCKED LIMIT` otherwise the Postgres Query Planner
         // CAN optimize the query which will cause MORE updates than the LIMIT specifies within
         // a nested loop.
