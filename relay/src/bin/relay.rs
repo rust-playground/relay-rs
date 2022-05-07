@@ -64,7 +64,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .idle_timeout(
             metrics_util::MetricKindMask::COUNTER | metrics_util::MetricKindMask::HISTOGRAM,
-            Some(std::time::Duration::from_secs(30)),
+            Some(Duration::from_secs(30)),
         )
         .add_global_label("app", "relay_rs")
         .install()
@@ -84,8 +84,8 @@ async fn main() -> anyhow::Result<()> {
     let pool = PgPoolOptions::new()
         .max_connections(opts.database_max_connections)
         .min_connections(min_connections)
-        .connect_timeout(Duration::from_secs(30))
-        .idle_timeout(Duration::from_secs(60 * 5))
+        .connect_timeout(Duration::from_secs(5))
+        .idle_timeout(Duration::from_secs(60))
         .after_connect(|conn| {
             Box::pin(async move {
                 // Insurance as if not at least this isolation mode then some queries are not

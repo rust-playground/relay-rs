@@ -89,7 +89,7 @@ impl Error {
     pub fn is_retryable(&self) -> bool {
         match self {
             Error::JobExists { .. } | Error::JobNotFound { .. } => false,
-            Error::Postgres { .. } => self.is_retryable(),
+            Error::Postgres { is_retryable, .. } => *is_retryable,
         }
     }
 }
