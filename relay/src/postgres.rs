@@ -42,8 +42,8 @@ impl PgStore {
         let pool = PgPoolOptions::new()
             .max_connections(100)
             .min_connections(10)
-            .connect_timeout(Duration::from_secs(60))
-            .idle_timeout(Duration::from_secs(20))
+            .connect_timeout(Duration::from_secs(5))
+            .idle_timeout(Duration::from_secs(60))
             .after_connect(|conn| {
                 Box::pin(async move {
                     // Insurance as if not at least this isolation mode then some queries are not
@@ -143,10 +143,7 @@ impl PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     pub async fn enqueue_batch(&self, jobs: &[Job]) -> Result<()> {
-        let mut transaction = self.pool.begin().await.map_err(|e| Error::Postgres {
-            message: e.to_string(),
-            is_retryable: is_retryable(e),
-        })?;
+        let mut transaction = self.pool.begin().await?;
 
         for job in jobs {
             let now = Utc::now();
@@ -183,17 +180,10 @@ impl PgStore {
             .bind(&now)
             .bind(&run_at)
             .execute(&mut transaction)
-            .await
-            .map_err(|e| Error::Postgres {
-                message: e.to_string(),
-                is_retryable: is_retryable(e),
-            })?;
+            .await?;
         }
 
-        transaction.commit().await.map_err(|e| Error::Postgres {
-            message: e.to_string(),
-            is_retryable: is_retryable(e),
-        })?;
+        transaction.commit().await?;
 
         Ok(())
     }
@@ -208,11 +198,7 @@ impl PgStore {
             .bind(queue)
             .bind(job_id)
             .execute(&self.pool)
-            .await
-            .map_err(|e| Error::Postgres {
-                message: e.to_string(),
-                is_retryable: is_retryable(e),
-            })?;
+            .await?;
 
         Ok(())
     }
@@ -282,11 +268,7 @@ impl PgStore {
             }
         })
         .fetch_all(&self.pool)
-        .await
-        .map_err(|e| Error::Postgres {
-            message: e.to_string(),
-            is_retryable: is_retryable(e),
-        })?;
+        .await?;
 
         if jobs.is_empty() {
             Ok(None)
@@ -323,11 +305,7 @@ impl PgStore {
         .bind(job_id)
         .bind(state.map(|state| Some(Json(state))))
         .execute(&self.pool)
-        .await
-        .map_err(|e| Error::Postgres {
-            message: e.to_string(),
-            is_retryable: is_retryable(e),
-        })?
+        .await?
         .rows_affected();
 
         if rows_affected == 0 {
@@ -387,11 +365,7 @@ impl PgStore {
         .bind(&now)
         .bind(&run_at)
         .execute(&self.pool)
-        .await
-        .map_err(|e| Error::Postgres {
-            message: e.to_string(),
-            is_retryable: is_retryable(e),
-        })?
+        .await?
         .rows_affected();
 
         if rows_affected == 0 {
@@ -418,11 +392,7 @@ impl PgStore {
         )
         .bind(interval_seconds)
         .execute(&self.pool)
-        .await
-        .map_err(|e| Error::Postgres {
-            message: e.to_string(),
-            is_retryable: is_retryable(e),
-        })?
+        .await?
         .rows_affected();
 
         // another instance has already updated OR time hasn't been hit yet
@@ -450,11 +420,7 @@ impl PgStore {
             "#,
         )
         .fetch_all(&self.pool)
-        .await
-        .map_err(|e| Error::Postgres {
-            message: e.to_string(),
-            is_retryable: is_retryable(e),
-        })?;
+        .await?;
 
         for (queue, count) in results {
             counter!("retries", u64::try_from(count).unwrap_or_default(), "queue" => queue);
@@ -476,11 +442,7 @@ impl PgStore {
             "#,
         )
         .fetch_all(&self.pool)
-        .await
-        .map_err(|e| Error::Postgres {
-            message: e.to_string(),
-            is_retryable: is_retryable(e),
-        })?;
+        .await?;
 
         for (queue, count) in results {
             warn!(
@@ -525,5 +487,14 @@ fn is_retryable(e: SQLXError) -> bool {
                 | ErrorKind::UnexpectedEof
         ),
         _ => false,
+    }
+}
+
+impl From<sqlx::Error> for Error {
+    fn from(e: sqlx::Error) -> Self {
+        Error::Postgres {
+            message: e.to_string(),
+            is_retryable: is_retryable(e),
+        }
     }
 }
