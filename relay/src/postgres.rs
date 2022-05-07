@@ -123,11 +123,7 @@ impl PgStore {
                         }
                     }
                 }
-
-                Error::Postgres {
-                    message: e.to_string(),
-                    is_retryable: is_retryable(e),
-                }
+                e.into()
             })?;
         Ok(())
     }
