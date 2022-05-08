@@ -17,7 +17,7 @@ pub struct Job {
     pub cron: String,
 
     /// the raw payload to send to an endpoint.
-    pub payload: relay::Job,
+    pub payload: relay::RawJob,
 
     /// When set and enqueuing the `ScheduledJob` fails due to a unique constraint this determines
     /// the backoff + retry period in seconds to try again. No retry if this is not set and will

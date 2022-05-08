@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3] - 2022-05-07
+### Fixed
+- Fixed recursive function call in is_retryable().
+- Updated dependencies with security/issue fixes.
+
+### Added
+- Caching in CI for faster test & builds.
+- More debug level tracing.
+
+### Changed
+- Default connection and idle timeouts to 5 and 60 seconds respectively.
+- Cleaned up error handling with impl From.
+- Renamed Job to RawJob for future client with Job with generic types.
+
+### Removed
+- JobId and Queue alias types.
+
 ## [0.5.2] - 2022-04-22
 ### Fixed
 - Next update query when under very specific circumstances the Postgres query planner can do the wrong thing. See here for a detailed example https://github.com/feikesteenbergen/demos/blob/19522f66ffb6eb358fe2d532d9bdeae38d4e2a0b/bugs/update_from_correlated.adoc
@@ -35,7 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Future Job support using new `run_at` Job field.
 - Reschedule endpoint allowing the Job Runner to manage a unique/singleton Job rescheduling itself.
 
-[Unreleased]: https://github.com/rust-playground/relay-rs/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/rust-playground/relay-rs/compare/v0.5.3...HEAD
+[0.5.3]: https://github.com/rust-playground/relay-rs/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/rust-playground/relay-rs/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/rust-playground/relay-rs/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/rust-playground/relay-rs/compare/v0.4.0...v0.5.0

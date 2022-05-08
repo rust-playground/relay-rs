@@ -4,20 +4,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use thiserror::Error;
 
-/// The Job Id alias
-pub type JobId = String;
-
-/// The Queue alias
-pub type Queue = String;
-
 /// Job defines all information needed to process a job.
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Job {
+pub struct RawJob {
     /// The unique Job ID which is also CAN be used to ensure the Job is a singleton.
-    pub id: JobId,
+    pub id: String,
 
     /// Is used to differentiate different job types that can be picked up by job runners.
-    pub queue: Queue,
+    pub queue: String,
 
     /// Denotes the duration, in seconds, after a Job has started processing or since the last
     /// heartbeat request occurred before considering the Job failed and being put back into the
@@ -89,7 +83,7 @@ impl Error {
     pub fn is_retryable(&self) -> bool {
         match self {
             Error::JobExists { .. } | Error::JobNotFound { .. } => false,
-            Error::Postgres { .. } => self.is_retryable(),
+            Error::Postgres { is_retryable, .. } => *is_retryable,
         }
     }
 }

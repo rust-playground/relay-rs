@@ -234,7 +234,7 @@
 //! | 500   | An unknown error has occurred server side.                                  |
 
 use crate::postgres::PgStore;
-use crate::{Error, Job};
+use crate::{Error, RawJob};
 use actix_web::http::StatusCode;
 use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpResponse, HttpServer};
@@ -248,7 +248,8 @@ use tracing::{error, info};
 /// The internal HTTP server representation for Jobs.
 pub struct Server;
 
-async fn enqueue(data: web::Data<Data>, job: web::Json<Job>) -> HttpResponse {
+#[tracing::instrument(name = "http_enqueue", level = "debug", skip_all)]
+async fn enqueue(data: web::Data<Data>, job: web::Json<RawJob>) -> HttpResponse {
     increment_counter!("http_request", "endpoint" => "enqueue", "queue" => job.0.queue.clone());
 
     if let Err(e) = data.pg_store.enqueue(&job.0).await {
@@ -273,7 +274,8 @@ async fn enqueue(data: web::Data<Data>, job: web::Json<Job>) -> HttpResponse {
     }
 }
 
-async fn enqueue_batch(data: web::Data<Data>, jobs: web::Json<Vec<Job>>) -> HttpResponse {
+#[tracing::instrument(name = "http_enqueue_batch", level = "debug", skip_all)]
+async fn enqueue_batch(data: web::Data<Data>, jobs: web::Json<Vec<RawJob>>) -> HttpResponse {
     increment_counter!("http_request", "endpoint" => "enqueue_batch");
 
     if let Err(e) = data.pg_store.enqueue_batch(&jobs.0).await {
@@ -304,6 +306,7 @@ const fn default_num_jobs() -> u32 {
     1
 }
 
+#[tracing::instrument(name = "http_next", level = "debug", skip_all)]
 async fn next(data: web::Data<Data>, info: web::Query<NextInfo>) -> HttpResponse {
     increment_counter!("http_request", "endpoint" => "next", "queue" => info.queue.clone());
 
@@ -333,6 +336,7 @@ struct HeartbeatInfo {
     job_id: String,
 }
 
+#[tracing::instrument(name = "http_heartbeat", level = "debug", skip_all)]
 async fn heartbeat(
     data: web::Data<Data>,
     info: web::Query<HeartbeatInfo>,
@@ -366,7 +370,8 @@ async fn heartbeat(
     }
 }
 
-async fn reschedule(data: web::Data<Data>, job: web::Json<Job>) -> HttpResponse {
+#[tracing::instrument(name = "http_reschedule", level = "debug", skip_all)]
+async fn reschedule(data: web::Data<Data>, job: web::Json<RawJob>) -> HttpResponse {
     increment_counter!("http_request", "endpoint" => "enqueued", "queue" => job.0.queue.clone());
 
     if let Err(e) = data.pg_store.reschedule(&job.0).await {
@@ -397,6 +402,7 @@ struct CompleteInfo {
     job_id: String,
 }
 
+#[tracing::instrument(name = "http_complete", level = "debug", skip_all)]
 async fn complete(data: web::Data<Data>, info: web::Query<CompleteInfo>) -> HttpResponse {
     increment_counter!("http_request", "endpoint" => "complete", "queue" => info.queue.clone());
 
