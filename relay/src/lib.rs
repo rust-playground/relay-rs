@@ -15,4 +15,4 @@ mod jobs;
 pub mod http;
 /// Postgres backing store for relay functionality.
 pub mod postgres;
-pub use jobs::{Error, Job, Result};
+pub use jobs::{Error, RawJob, Result};

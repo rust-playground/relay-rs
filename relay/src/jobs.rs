@@ -6,7 +6,7 @@ use thiserror::Error;
 
 /// Job defines all information needed to process a job.
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Job {
+pub struct RawJob {
     /// The unique Job ID which is also CAN be used to ensure the Job is a singleton.
     pub id: String,
 

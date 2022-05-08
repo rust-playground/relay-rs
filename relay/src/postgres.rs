@@ -1,5 +1,5 @@
 #![allow(clippy::cast_possible_truncation)]
-use crate::{Error, Job, Result};
+use crate::{Error, RawJob, Result};
 use chrono::{NaiveDateTime, TimeZone, Utc};
 use log::LevelFilter;
 use metrics::counter;
@@ -90,7 +90,7 @@ impl PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     #[tracing::instrument(name = "pg_enqueue", level = "debug", skip_all, fields(job_id=%job.id, queue=%job.queue))]
-    pub async fn enqueue(&self, job: &Job) -> Result<()> {
+    pub async fn enqueue(&self, job: &RawJob) -> Result<()> {
         let now = Utc::now();
         let run_at = if let Some(run_at) = job.run_at {
             run_at
@@ -141,7 +141,7 @@ impl PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     #[tracing::instrument(name = "pg_enqueue_batch", level = "debug", skip_all, fields(jobs = jobs.len()))]
-    pub async fn enqueue_batch(&self, jobs: &[Job]) -> Result<()> {
+    pub async fn enqueue_batch(&self, jobs: &[RawJob]) -> Result<()> {
         let mut transaction = self.pool.begin().await?;
 
         for job in jobs {
@@ -210,7 +210,7 @@ impl PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     #[tracing::instrument(name = "pg_next", level = "debug", skip_all, fields(num_jobs=num_jobs, queue=%queue))]
-    pub async fn next(&self, queue: &str, num_jobs: u32) -> Result<Option<Vec<Job>>> {
+    pub async fn next(&self, queue: &str, num_jobs: u32) -> Result<Option<Vec<RawJob>>> {
         // MUST USE CTE WITH `FOR UPDATE SKIP LOCKED LIMIT` otherwise the Postgres Query Planner
         // CAN optimize the query which will cause MORE updates than the LIMIT specifies within
         // a nested loop.
@@ -257,7 +257,7 @@ impl PgStore {
             let timeout: PgInterval = row.get(2);
             let run_at: NaiveDateTime = row.get(6);
 
-            Job {
+            RawJob {
                 id: row.get(0),
                 queue: row.get(1),
                 timeout: (timeout.microseconds / 1_000_000) as i32,
@@ -335,7 +335,7 @@ impl PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     #[tracing::instrument(name = "pg_reschedule", level = "debug", skip_all, fields(job_id=%job.id, queue=%job.queue))]
-    pub async fn reschedule(&self, job: &Job) -> Result<()> {
+    pub async fn reschedule(&self, job: &RawJob) -> Result<()> {
         let now = Utc::now();
         let run_at = if let Some(run_at) = job.run_at {
             run_at
