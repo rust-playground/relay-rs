@@ -511,3 +511,129 @@ impl From<sqlx::Error> for Error {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn test_enqueue_next_complete() -> anyhow::Result<()> {
+        let db_url = std::env::var("DATABASE_URL")?;
+        let store = PgStore::default(&db_url).await?;
+        let job_id = Uuid::new_v4().to_string();
+        let queue = Uuid::new_v4().to_string();
+        let job = RawJob {
+            id: job_id.clone(),
+            queue: queue.clone(),
+            timeout: 0,
+            max_retries: 3,
+            payload: RawValue::from_string("{}".to_string())?,
+            state: None,
+            run_at: None,
+        };
+        store.enqueue(&job).await?;
+
+        let next_job = store.next(&queue, 1).await?;
+        assert!(next_job.is_some());
+        let next_job = next_job.unwrap();
+        assert_eq!(next_job.len(), 1);
+        assert_eq!(next_job[0].id, job.id);
+        store.remove(&job.queue, &job.id).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_enqueue_batch_next_complete() -> anyhow::Result<()> {
+        let db_url = std::env::var("DATABASE_URL")?;
+        let store = PgStore::default(&db_url).await?;
+        let job_id = Uuid::new_v4().to_string();
+        let queue = Uuid::new_v4().to_string();
+        let job = RawJob {
+            id: job_id.clone(),
+            queue: queue.clone(),
+            timeout: 0,
+            max_retries: 3,
+            payload: RawValue::from_string("{}".to_string())?,
+            state: None,
+            run_at: None,
+        };
+        store.enqueue_batch(&[job]).await?;
+
+        let next_job = store.next(&queue, 1).await?;
+        assert!(next_job.is_some());
+        let next_job = next_job.unwrap();
+        assert_eq!(next_job.len(), 1);
+        assert_eq!(next_job[0].id, job_id);
+        store.remove(&queue, &job_id).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_reschedule() -> anyhow::Result<()> {
+        let db_url = std::env::var("DATABASE_URL")?;
+        let store = PgStore::default(&db_url).await?;
+        let job_id = Uuid::new_v4().to_string();
+        let queue = Uuid::new_v4().to_string();
+        let job = RawJob {
+            id: job_id.clone(),
+            queue: queue.clone(),
+            timeout: 0,
+            max_retries: 3,
+            payload: RawValue::from_string("{}".to_string())?,
+            state: None,
+            run_at: None,
+        };
+        store.enqueue(&job).await?;
+
+        let next_job = store.next(&queue, 1).await?;
+        assert!(next_job.is_some());
+        let next_job = next_job.unwrap();
+        assert_eq!(next_job.len(), 1);
+        assert_eq!(next_job[0].id, job.id);
+
+        store.reschedule(&job).await?;
+
+        let next_job = store.next(&queue, 1).await?;
+        assert!(next_job.is_some());
+        let next_job = next_job.unwrap();
+        assert_eq!(next_job.len(), 1);
+        assert_eq!(next_job[0].id, job.id);
+
+        store.remove(&job.queue, &job.id).await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_reschedule_future() -> anyhow::Result<()> {
+        let db_url = std::env::var("DATABASE_URL")?;
+        let store = PgStore::default(&db_url).await?;
+        let job_id = Uuid::new_v4().to_string();
+        let queue = Uuid::new_v4().to_string();
+        let mut job = RawJob {
+            id: job_id.clone(),
+            queue: queue.clone(),
+            timeout: 0,
+            max_retries: 3,
+            payload: RawValue::from_string("{}".to_string())?,
+            state: None,
+            run_at: None,
+        };
+        store.enqueue(&job).await?;
+
+        let next_job = store.next(&queue, 1).await?;
+        assert!(next_job.is_some());
+        let next_job = next_job.unwrap();
+        assert_eq!(next_job.len(), 1);
+        assert_eq!(next_job[0].id, job.id);
+
+        job.run_at = Some(Utc::now() + chrono::Duration::seconds(60 * 60));
+        store.reschedule(&job).await?;
+
+        let next_job = store.next(&queue, 1).await?;
+        assert!(next_job.is_none());
+
+        store.remove(&job.queue, &job.id).await?;
+        Ok(())
+    }
+}
