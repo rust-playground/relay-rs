@@ -89,6 +89,7 @@ impl PgStore {
     /// # Errors
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
+    #[tracing::instrument(name = "pg_enqueue", level = "debug", skip_all, fields(job_id=%job.id, queue=%job.queue))]
     pub async fn enqueue(&self, job: &Job) -> Result<()> {
         let now = Utc::now();
         let run_at = if let Some(run_at) = job.run_at {
@@ -125,6 +126,7 @@ impl PgStore {
                 }
                 e.into()
             })?;
+        debug!("enqueued job");
         Ok(())
     }
 
@@ -138,6 +140,7 @@ impl PgStore {
     /// # Errors
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
+    #[tracing::instrument(name = "pg_enqueue_batch", level = "debug", skip_all, fields(jobs = jobs.len()))]
     pub async fn enqueue_batch(&self, jobs: &[Job]) -> Result<()> {
         let mut transaction = self.pool.begin().await?;
 
@@ -180,7 +183,7 @@ impl PgStore {
         }
 
         transaction.commit().await?;
-
+        debug!("enqueued batch");
         Ok(())
     }
 
@@ -189,6 +192,7 @@ impl PgStore {
     /// # Errors
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
+    #[tracing::instrument(name = "pg_remove", level = "debug", skip_all, fields(job_id=%job_id, queue=%queue))]
     pub async fn remove(&self, queue: &str, job_id: &str) -> Result<()> {
         sqlx::query("DELETE FROM jobs WHERE queue=$1 AND id=$2")
             .bind(queue)
@@ -196,6 +200,7 @@ impl PgStore {
             .execute(&self.pool)
             .await?;
 
+        debug!("removed job");
         Ok(())
     }
 
@@ -204,6 +209,7 @@ impl PgStore {
     /// # Errors
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
+    #[tracing::instrument(name = "pg_next", level = "debug", skip_all, fields(num_jobs=num_jobs, queue=%queue))]
     pub async fn next(&self, queue: &str, num_jobs: u32) -> Result<Option<Vec<Job>>> {
         // MUST USE CTE WITH `FOR UPDATE SKIP LOCKED LIMIT` otherwise the Postgres Query Planner
         // CAN optimize the query which will cause MORE updates than the LIMIT specifies within
@@ -267,8 +273,10 @@ impl PgStore {
         .await?;
 
         if jobs.is_empty() {
+            debug!("fetched no jobs");
             Ok(None)
         } else {
+            debug!(fetched_jobs = jobs.len(), "fetched next job(s)");
             Ok(Some(jobs))
         }
     }
@@ -279,6 +287,7 @@ impl PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB or the
     /// Job attempting to be updated cannot be found.
+    #[tracing::instrument(name = "pg_update", level = "debug", skip_all, fields(job_id=%job_id, queue=%queue))]
     pub async fn update(
         &self,
         queue: &str,
@@ -305,11 +314,13 @@ impl PgStore {
         .rows_affected();
 
         if rows_affected == 0 {
+            debug!("job not found");
             Err(Error::JobNotFound {
                 job_id: job_id.to_string(),
                 queue: queue.to_string(),
             })
         } else {
+            debug!("updated job");
             Ok(())
         }
     }
@@ -323,6 +334,7 @@ impl PgStore {
     /// # Errors
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
+    #[tracing::instrument(name = "pg_reschedule", level = "debug", skip_all, fields(job_id=%job.id, queue=%job.queue))]
     pub async fn reschedule(&self, job: &Job) -> Result<()> {
         let now = Utc::now();
         let run_at = if let Some(run_at) = job.run_at {
@@ -365,11 +377,13 @@ impl PgStore {
         .rows_affected();
 
         if rows_affected == 0 {
+            debug!("job not found");
             Err(Error::JobNotFound {
                 job_id: job.id.to_string(),
                 queue: job.queue.to_string(),
             })
         } else {
+            debug!("rescheduled job");
             Ok(())
         }
     }
@@ -379,6 +393,7 @@ impl PgStore {
     /// # Errors
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
+    #[tracing::instrument(name = "pg_reap_timeouts", level = "debug", skip(self))]
     pub async fn reap_timeouts(&self, interval_seconds: i64) -> Result<()> {
         let rows_affected = sqlx::query(
             r#"
@@ -396,7 +411,7 @@ impl PgStore {
             return Ok(());
         }
 
-        debug!("running timeout reaper");
+        debug!("running timeout & delete reaper");
 
         let results: Vec<(String, i64)> = sqlx::query_as::<_, (String, i64)>(
             r#"
@@ -419,6 +434,7 @@ impl PgStore {
         .await?;
 
         for (queue, count) in results {
+            debug!(queue = %queue, count = count, "retrying jobs");
             counter!("retries", u64::try_from(count).unwrap_or_default(), "queue" => queue);
         }
 
@@ -442,8 +458,9 @@ impl PgStore {
 
         for (queue, count) in results {
             warn!(
-                "deleted {} records from queue '{}' that reached their max retries",
-                count, queue
+                count = count,
+                queue = %queue,
+                "deleted records from queue that reached their max retries"
             );
             counter!("errors", u64::try_from(count).unwrap_or_default(), "queue" => queue);
         }
