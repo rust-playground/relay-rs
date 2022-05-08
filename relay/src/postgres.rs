@@ -532,14 +532,14 @@ mod tests {
             state: None,
             run_at: None,
         };
-        assert_eq!(store.enqueue(&job).await?, ());
+        store.enqueue(&job).await?;
 
         let next_job = store.next(&queue, 1).await?;
         assert!(next_job.is_some());
         let next_job = next_job.unwrap();
         assert_eq!(next_job.len(), 1);
         assert_eq!(next_job[0].id, job.id);
-        assert_eq!(store.remove(&job.queue, &job.id).await?, ());
+        store.remove(&job.queue, &job.id).await?;
         Ok(())
     }
 }
