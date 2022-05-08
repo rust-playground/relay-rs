@@ -14,6 +14,7 @@ test:
     DATABASE_URL=postgres://username:pass@localhost:5432/relay?sslmode=disable \
     cargo test -- --show-output
 
+
 test.all: services.up test services.down
 
 .PHONY: test services.up services.down test.all
