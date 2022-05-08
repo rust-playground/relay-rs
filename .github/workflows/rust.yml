@@ -10,7 +10,7 @@ jobs:
     runs-on: ${{ matrix.platform }}
     services:
       postgres:
-        image: postgres:postgres:10-alpine
+        image: postgres:10-alpine
         volumes:
           - ${{ github.workspace }}/schema:/docker-entrypoint-initdb.d
         ports:
