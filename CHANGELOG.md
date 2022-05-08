@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Default connection and idle timeouts to 5 and 60 seconds respectively.
 - Cleaned up error handling with impl From.
+- Renamed Job to RawJob for future client with Job with generic types.
 
 ### Removed
 - JobId and Queue alias types.
