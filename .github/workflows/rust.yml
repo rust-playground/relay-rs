@@ -8,15 +8,16 @@ jobs:
     services:
       postgres:
         image: postgres:10-alpine
-        volumes:
-          - ${{ github.workspace }}/schema:/docker-entrypoint-initdb.d
+#        volumes:
+#          - ${{ github.workspace }}/schema:/docker-entrypoint-initdb.d
         ports:
           - 5432:5432
         env:
           POSTGRES_USER: username
           POSTGRES_PASS: pass
           POSTGRES_HOST_AUTH_METHOD: trust
-          POSTGRES_MULTIPLE_DATABASES: relay,scheduler
+          POSTGRES_DB: relay
+#          POSTGRES_MULTIPLE_DATABASES: relay,scheduler
         # Set health checks to wait until postgres has started
         options: >-
           --health-cmd pg_isready
