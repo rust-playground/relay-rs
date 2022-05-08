@@ -519,7 +519,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_enqueue_next_complete() -> anyhow::Result<()> {
-        let db_url = env!("DATABASE_URL");
+        let db_url = std::env::var("DATABASE_URL")?;
         let store = PgStore::default(&db_url).await?;
         let job_id = Uuid::new_v4().to_string();
         let queue = Uuid::new_v4().to_string();
