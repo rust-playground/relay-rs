@@ -23,6 +23,9 @@ actix-web = { version = "4.0.1", default-features = false, features = ["compress
 thiserror = "1.0.31"
 anydate = { version = "0.3.0", features = ["serde"] }
 
+[dev-dependencies]
+uuid = { version = "1.0.0", features = ["v4"] }
+
 [features]
 default = []
 metrics-prometheus = ["metrics-exporter-prometheus"]
