@@ -1,0 +1,22 @@
+version: "3.7"
+services:
+  postgres:
+    image: postgres:10-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: relay
+      POSTGRES_USER: username
+      POSTGRES_PASS: pass
+      POSTGRES_HOST_AUTH_METHOD: trust
+
+  relay:
+    image: ghcr.io/rust-playground/relay-rs:latest
+    environment:
+      - DATABASE_URL=postgres://username:pass@postgres:5432/relay?sslmode=disable
+      - HTTP_PORT=8080
+      - RUST_LOG=debug
+    ports:
+      - 8080:8080
+    depends_on:
+      - postgres

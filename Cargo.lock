@@ -1607,6 +1607,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "relay-client"
+version = "0.1.0"
+dependencies = [
+ "anydate",
+ "anyhow",
+ "chrono",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "uuid 1.0.0",
+]
+
+[[package]]
 name = "reqwest"
 version = "0.11.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
