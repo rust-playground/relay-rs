@@ -28,9 +28,8 @@ pub struct RawJob {
 
     /// The raw JSON payload that the job runner will receive.
     ///
-    /// This state will be ignored when enqueueing a Job and can only be set via a Heartbeat
-    /// request.
-    #[serde(skip_deserializing)]
+    /// This state will be ignored when enqueueing a Job and can only be set via a Heartbeat or
+    /// Reschedule request.
     pub state: Option<Box<RawValue>>,
 
     /// With this you can optionally schedule/set a Job to be run only at a specific time in the
