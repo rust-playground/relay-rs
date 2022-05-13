@@ -351,9 +351,10 @@ impl PgStore {
                     max_retries = $4,
                     retries_remaining = $4,
                     data = $5,
-                    updated_at = $6,
-                    created_at = $6,
-                    run_at = $7,
+                    state = $6,
+                    updated_at = $7,
+                    created_at = $7,
+                    run_at = $8,
                     in_flight = false
                 WHERE
                     queue=$1 AND
@@ -370,6 +371,7 @@ impl PgStore {
         })
         .bind(job.max_retries)
         .bind(Json(&job.payload))
+        .bind(job.state.as_ref().map(|state| Some(Json(state))))
         .bind(&now)
         .bind(&run_at)
         .execute(&self.pool)
