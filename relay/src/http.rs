@@ -373,7 +373,7 @@ async fn heartbeat(
 
 #[tracing::instrument(name = "http_reschedule", level = "debug", skip_all)]
 async fn reschedule(data: web::Data<Data>, job: web::Json<RawJob>) -> HttpResponse {
-    increment_counter!("http_request", "endpoint" => "enqueued", "queue" => job.0.queue.clone());
+    increment_counter!("http_request", "endpoint" => "reschedule", "queue" => job.0.queue.clone());
 
     if let Err(e) = data.pg_store.reschedule(&job.0).await {
         increment_counter!("errors", "endpoint" => "enqueued", "type" => e.error_type(), "queue" => e.queue());
