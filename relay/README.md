@@ -5,14 +5,18 @@ This contains a no nonsense, horizontally scalable, ordered job runner backed by
 ### Features
 Optional features:
 - [`metrics-prometheus`][]: Enables emitting of Prometheus metrics via a scraping endpoint.
+- [`backend-postgres`][]: Enables the Postgres backend (default).
+- [`metrics-prometheus`][]: Enables emitting of Prometheus metrics via a scraping endpoint.
 
+[`frontend-http`]: `relay_frontend_http`
+[`backend-postgres`]: `relay_backend_postgres`
 [`metrics-prometheus`]: https://crates.io/crates/metrics-exporter-prometheus
 
 #### Requirements
 - Postgres 9.5+
 
-#### API
-For details about the API see [here](./API.md). 
+#### HTTP API
+For details about the API see [here](../relay-frontend-http/API.md). 
 
 #### How to build
 ```shell

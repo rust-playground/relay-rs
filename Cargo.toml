@@ -2,5 +2,12 @@
 
 members = [
     "relay",
-    "scheduler",
+    "relay-core",
+    "relay-frontend-http",
+    "relay-backend-postgres",
 ]
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1

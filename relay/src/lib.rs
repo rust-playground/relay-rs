@@ -4,15 +4,11 @@
 //!
 //! ### Features
 //! Optional features:
+//! - [`frontend-http`][]: Enables the HTTP frontend (default).
+//! - [`backend-postgres`][]: Enables the Postgres backend (default).
 //! - [`metrics-prometheus`][]: Enables emitting of Prometheus metrics via a scraping endpoint.
 //!
+//! [`frontend-http`]: `relay_frontend_http`
+//! [`backend-postgres`]: `relay_backend_postgres`
 //! [`metrics-prometheus`]: https://crates.io/crates/metrics-exporter-prometheus
 //!
-
-mod jobs;
-
-/// Contains the `HTTP` server exposing the relay functionality.
-pub mod http;
-/// Postgres backing store for relay functionality.
-pub mod postgres;
-pub use jobs::{Error, RawJob, Result};

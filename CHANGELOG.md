@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2022-07-04
+### Changed
+- Refactored code for more modular approach. This should allow for more frontends and backend in the future.
+
 ## [0.6.1] - 2022-05-18
 ### Fixed
 - Reschedule metric.
@@ -60,8 +64,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Future Job support using new `run_at` Job field.
 - Reschedule endpoint allowing the Job Runner to manage a unique/singleton Job rescheduling itself.
 
-[Unreleased]: https://github.com/rust-playground/relay-rs/compare/v0.6.1...HEAD
-[0.6.0]: https://github.com/rust-playground/relay-rs/compare/v0.6.0...v0.6.1
+[Unreleased]: https://github.com/rust-playground/relay-rs/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/rust-playground/relay-rs/compare/v0.6.1...v0.7.0
+[0.6.1]: https://github.com/rust-playground/relay-rs/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/rust-playground/relay-rs/compare/v0.5.3...v0.6.0
 [0.5.3]: https://github.com/rust-playground/relay-rs/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/rust-playground/relay-rs/compare/v0.5.1...v0.5.2
