@@ -1,19 +1,19 @@
 #[allow(unused_imports)]
 use anyhow::Context;
 use clap::Parser;
-use log::LevelFilter;
-use relay::http::Server;
-use relay::postgres::PgStore;
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-use sqlx::{ConnectOptions, Executor};
+use relay_core::Backend;
+use serde_json::value::RawValue;
 use std::env;
-use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::oneshot;
+use tracing::{error, info};
 
 #[derive(Debug, Parser)]
 #[clap(version = env!("CARGO_PKG_VERSION"), author = env!("CARGO_PKG_AUTHORS"), about = env!("CARGO_PKG_DESCRIPTION"))]
 pub struct Opts {
     /// HTTP Port to bind to.
+    #[cfg(feature = "frontend-http")]
     #[clap(long, default_value = "8080", env = "HTTP_PORT")]
     pub http_port: String,
 
@@ -23,6 +23,7 @@ pub struct Opts {
     pub metrics_port: String,
 
     /// DATABASE URL to connect to.
+    #[cfg(feature = "backend-postgres")]
     #[clap(
         long,
         default_value = "postgres://username:pass@localhost:5432/relay?sslmode=disable",
@@ -31,6 +32,7 @@ pub struct Opts {
     pub database_url: String,
 
     /// Maximum allowed database connections
+    #[cfg(feature = "backend-postgres")]
     #[clap(long, default_value = "10", env = "DATABASE_MAX_CONNECTIONS")]
     pub database_max_connections: u32,
 
@@ -70,40 +72,55 @@ async fn main() -> anyhow::Result<()> {
         .install()
         .context("failed to install Prometheus recorder")?;
 
-    let options = PgConnectOptions::from_str(&opts.database_url)?
-        .log_statements(LevelFilter::Off)
-        .log_slow_statements(LevelFilter::Warn, Duration::from_secs(1))
-        .clone();
+    #[cfg(feature = "backend-postgres")]
+    let backend = Arc::new(init_postgres(&opts).await?);
 
+    let interval_seconds = match i64::try_from(opts.reap_interval) {
+        Ok(n) => n,
+        Err(_) => i64::MAX,
+    };
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    let reap_be = backend.clone();
+    let reaper = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(opts.reap_interval));
+        interval.reset();
+        tokio::pin!(shutdown_rx);
+
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    if let Err(e) = reap_be.reap(interval_seconds).await {
+                        error!("error occurred reaping jobs. {}", e.to_string());
+                    }
+                    interval.reset();
+                },
+                _ = (&mut shutdown_rx) => break
+            }
+        }
+    });
+
+    #[cfg(feature = "frontend-http")]
+    relay_frontend_http::Server::run(backend, &format!("0.0.0.0:{}", opts.http_port)).await?;
+
+    drop(shutdown_tx);
+
+    reaper.await?;
+    info!("Reaper shutdown");
+
+    Ok(())
+}
+
+#[cfg(feature = "backend-postgres")]
+async fn init_postgres(opts: &Opts) -> anyhow::Result<impl Backend<Box<RawValue>>> {
     let min_connections = if opts.database_max_connections < 10 {
         1
     } else {
         10
     };
-
-    let pool = PgPoolOptions::new()
-        .max_connections(opts.database_max_connections)
-        .min_connections(min_connections)
-        .connect_timeout(Duration::from_secs(5))
-        .idle_timeout(Duration::from_secs(60))
-        .after_connect(|conn| {
-            Box::pin(async move {
-                // Insurance as if not at least this isolation mode then some queries are not
-                // transactional safe. Specifically FOR UPDATE SKIP LOCKED.
-                conn.execute("SET default_transaction_isolation TO 'read committed'")
-                    .await?;
-                Ok(())
-            })
-        })
-        .connect_with(options)
-        .await?;
-
-    let pg = PgStore::new_with_pool(pool).await?;
-
-    Server::run(
-        pg,
-        &format!("0.0.0.0:{}", opts.http_port),
-        Duration::from_secs(opts.reap_interval),
+    Ok(relay_backend_postgres::PgStore::new(
+        &opts.database_url,
+        min_connections,
+        opts.database_max_connections,
     )
-    .await
+    .await?)
 }

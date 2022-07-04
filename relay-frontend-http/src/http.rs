@@ -234,32 +234,32 @@
 //! | 422   | A permanent error has occurred.                                             |
 //! | 500   | An unknown error has occurred server side.                                  |
 
-use crate::postgres::PgStore;
-use crate::{Error, RawJob};
 use actix_web::http::StatusCode;
 use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpResponse, HttpServer};
 use metrics::increment_counter;
-use serde::Deserialize;
-use serde_json::value::RawValue;
-use std::time::Duration;
-use tokio::sync::oneshot;
-use tracing::{error, info};
+use relay_core::{Backend, Error, Job};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// The internal HTTP server representation for Jobs.
 pub struct Server;
 
 #[tracing::instrument(name = "http_enqueue", level = "debug", skip_all)]
-async fn enqueue(data: web::Data<Data>, job: web::Json<RawJob>) -> HttpResponse {
+async fn enqueue<BE, T>(data: web::Data<Arc<BE>>, job: web::Json<Job<T>>) -> HttpResponse
+where
+    BE: Backend<T>,
+{
     increment_counter!("http_request", "endpoint" => "enqueue", "queue" => job.0.queue.clone());
 
-    if let Err(e) = data.pg_store.enqueue(&job.0).await {
+    if let Err(e) = data.enqueue(&job.0).await {
         increment_counter!("errors", "endpoint" => "enqueue", "type" => e.error_type(), "queue" => e.queue());
         match e {
             Error::JobExists { .. } => {
                 HttpResponse::build(StatusCode::CONFLICT).body(e.to_string())
             }
-            Error::Postgres { .. } => {
+            Error::Backend { .. } => {
                 if e.is_retryable() {
                     HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
                 } else {
@@ -276,13 +276,19 @@ async fn enqueue(data: web::Data<Data>, job: web::Json<RawJob>) -> HttpResponse 
 }
 
 #[tracing::instrument(name = "http_enqueue_batch", level = "debug", skip_all)]
-async fn enqueue_batch(data: web::Data<Data>, jobs: web::Json<Vec<RawJob>>) -> HttpResponse {
+async fn enqueue_batch<BE, T>(
+    data: web::Data<Arc<BE>>,
+    jobs: web::Json<Vec<Job<T>>>,
+) -> HttpResponse
+where
+    BE: Backend<T>,
+{
     increment_counter!("http_request", "endpoint" => "enqueue_batch");
 
-    if let Err(e) = data.pg_store.enqueue_batch(&jobs.0).await {
+    if let Err(e) = data.enqueue_batch(&jobs.0).await {
         increment_counter!("errors", "endpoint" => "enqueue_batch", "type" => e.error_type());
         match e {
-            Error::Postgres { .. } => {
+            Error::Backend { .. } => {
                 if e.is_retryable() {
                     HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
                 } else {
@@ -308,13 +314,17 @@ const fn default_num_jobs() -> u32 {
 }
 
 #[tracing::instrument(name = "http_next", level = "debug", skip_all)]
-async fn next(data: web::Data<Data>, info: web::Query<NextInfo>) -> HttpResponse {
+async fn next<BE, T>(data: web::Data<Arc<BE>>, info: web::Query<NextInfo>) -> HttpResponse
+where
+    T: Serialize,
+    BE: Backend<T>,
+{
     increment_counter!("http_request", "endpoint" => "next", "queue" => info.queue.clone());
 
-    match data.pg_store.next(&info.queue, info.num_jobs).await {
+    match data.next(&info.queue, info.num_jobs).await {
         Err(e) => {
             increment_counter!("errors", "endpoint" => "next", "type" => e.error_type(), "queue" => e.queue());
-            if let Error::Postgres { .. } = e {
+            if let Error::Backend { .. } = e {
                 if e.is_retryable() {
                     HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
                 } else {
@@ -338,24 +348,27 @@ struct HeartbeatInfo {
 }
 
 #[tracing::instrument(name = "http_heartbeat", level = "debug", skip_all)]
-async fn heartbeat(
-    data: web::Data<Data>,
+async fn heartbeat<BE, T>(
+    data: web::Data<Arc<BE>>,
     info: web::Query<HeartbeatInfo>,
-    state: Option<web::Json<Box<RawValue>>>,
-) -> HttpResponse {
+    state: Option<web::Json<T>>,
+) -> HttpResponse
+where
+    BE: Backend<T>,
+{
     increment_counter!("http_request", "endpoint" => "heartbeat", "queue" => info.queue.clone());
 
     let state = match state {
         None => None,
         Some(state) => Some(state.0),
     };
-    if let Err(e) = data.pg_store.update(&info.queue, &info.job_id, state).await {
+    if let Err(e) = data.update(&info.queue, &info.job_id, state).await {
         increment_counter!("errors", "endpoint" => "heartbeat", "type" => e.error_type(), "queue" => e.queue());
         match e {
             Error::JobNotFound { .. } => {
                 HttpResponse::build(StatusCode::NOT_FOUND).body(e.to_string())
             }
-            Error::Postgres { .. } => {
+            Error::Backend { .. } => {
                 if e.is_retryable() {
                     HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
                 } else {
@@ -372,16 +385,19 @@ async fn heartbeat(
 }
 
 #[tracing::instrument(name = "http_reschedule", level = "debug", skip_all)]
-async fn reschedule(data: web::Data<Data>, job: web::Json<RawJob>) -> HttpResponse {
+async fn reschedule<BE, T>(data: web::Data<Arc<BE>>, job: web::Json<Job<T>>) -> HttpResponse
+where
+    BE: Backend<T>,
+{
     increment_counter!("http_request", "endpoint" => "reschedule", "queue" => job.0.queue.clone());
 
-    if let Err(e) = data.pg_store.reschedule(&job.0).await {
+    if let Err(e) = data.reschedule(&job.0).await {
         increment_counter!("errors", "endpoint" => "enqueued", "type" => e.error_type(), "queue" => e.queue());
         match e {
             Error::JobExists { .. } => {
                 HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string())
             }
-            Error::Postgres { .. } => {
+            Error::Backend { .. } => {
                 if e.is_retryable() {
                     HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
                 } else {
@@ -404,16 +420,19 @@ struct CompleteInfo {
 }
 
 #[tracing::instrument(name = "http_complete", level = "debug", skip_all)]
-async fn complete(data: web::Data<Data>, info: web::Query<CompleteInfo>) -> HttpResponse {
+async fn complete<BE, T>(data: web::Data<Arc<BE>>, info: web::Query<CompleteInfo>) -> HttpResponse
+where
+    BE: Backend<T>,
+{
     increment_counter!("http_request", "endpoint" => "complete", "queue" => info.queue.clone());
 
-    if let Err(e) = data.pg_store.remove(&info.queue, &info.job_id).await {
+    if let Err(e) = data.remove(&info.queue, &info.job_id).await {
         increment_counter!("errors", "endpoint" => "complete", "type" => e.error_type(), "queue" => e.queue());
         match e {
             Error::JobNotFound { .. } => {
                 HttpResponse::build(StatusCode::NOT_FOUND).body(e.to_string())
             }
-            Error::Postgres { .. } => {
+            Error::Backend { .. } => {
                 if e.is_retryable() {
                     HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
                 } else {
@@ -434,10 +453,6 @@ async fn health() -> HttpResponse {
     HttpResponse::build(StatusCode::OK).finish()
 }
 
-struct Data {
-    pg_store: PgStore,
-}
-
 impl Server {
     /// starts the HTTP server and waits for a shutdown signal before returning.
     ///
@@ -450,52 +465,26 @@ impl Server {
     /// Will panic the reaper async thread fails, which can only happen if the timer and channel
     /// both die.
     #[inline]
-    pub async fn run(pg_store: PgStore, addr: &str, reap_interval: Duration) -> anyhow::Result<()> {
-        let store = web::Data::new(Data { pg_store });
-        let interval_seconds = match i64::try_from(reap_interval.as_secs()) {
-            Ok(n) => n,
-            Err(_) => i64::MAX,
-        };
-        let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-        let reap_store = store.clone();
-        let reaper = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(reap_interval);
-            interval.reset();
-            tokio::pin!(shutdown_rx);
-
-            loop {
-                tokio::select! {
-                    _ = interval.tick() => {
-                        if let Err(e) = reap_store.pg_store.reap_timeouts(interval_seconds).await {
-                            error!("error occurred reaping jobs. {}", e.to_string());
-                        }
-                        interval.reset();
-                    },
-                    _ = (&mut shutdown_rx) => break
-                }
-            }
-        });
-
+    pub async fn run<BE, T>(backend: Arc<BE>, addr: &str) -> anyhow::Result<()>
+    where
+        T: Serialize + DeserializeOwned + Send + Sync + 'static,
+        BE: Backend<T> + Send + Sync + 'static,
+    {
         HttpServer::new(move || {
             App::new()
-                .app_data(store.clone())
+                .app_data(backend.clone())
                 .wrap(Logger::new("%a %r %s %Dms"))
-                .route("/enqueue", web::post().to(enqueue))
-                .route("/enqueue/batch", web::post().to(enqueue_batch))
-                .route("/heartbeat", web::patch().to(heartbeat))
-                .route("/reschedule", web::post().to(reschedule))
-                .route("/complete", web::delete().to(complete))
-                .route("/next", web::get().to(next))
+                .route("/enqueue", web::post().to(enqueue::<BE, T>))
+                .route("/enqueue/batch", web::post().to(enqueue_batch::<BE, T>))
+                .route("/heartbeat", web::patch().to(heartbeat::<BE, T>))
+                .route("/reschedule", web::post().to(reschedule::<BE, T>))
+                .route("/complete", web::delete().to(complete::<BE, T>))
+                .route("/next", web::get().to(next::<BE, T>))
                 .route("/health", web::get().to(health))
         })
         .bind(addr)?
         .run()
         .await?;
-
-        drop(shutdown_tx);
-
-        reaper.await?;
-        info!("Reaper shutdown");
         Ok(())
     }
 }

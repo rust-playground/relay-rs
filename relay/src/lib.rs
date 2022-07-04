@@ -8,11 +8,3 @@
 //!
 //! [`metrics-prometheus`]: https://crates.io/crates/metrics-exporter-prometheus
 //!
-
-mod jobs;
-
-/// Contains the `HTTP` server exposing the relay functionality.
-pub mod http;
-/// Postgres backing store for relay functionality.
-pub mod postgres;
-pub use jobs::{Error, RawJob, Result};
