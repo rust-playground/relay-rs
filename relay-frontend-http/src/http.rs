@@ -472,7 +472,7 @@ impl Server {
     {
         HttpServer::new(move || {
             App::new()
-                .app_data(backend.clone())
+                .app_data(web::Data::new(backend.clone()))
                 .wrap(Logger::new("%a %r %s %Dms"))
                 .route("/enqueue", web::post().to(enqueue::<BE, T>))
                 .route("/enqueue/batch", web::post().to(enqueue_batch::<BE, T>))
