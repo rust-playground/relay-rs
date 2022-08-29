@@ -74,22 +74,17 @@ async fn main() -> anyhow::Result<()> {
 
     #[cfg(feature = "backend-postgres")]
     let backend = Arc::new(init_postgres(&opts).await?);
-
-    let interval_seconds = match i64::try_from(opts.reap_interval) {
-        Ok(n) => n,
-        Err(_) => i64::MAX,
-    };
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let reap_be = backend.clone();
     let reaper = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(opts.reap_interval));
+        let mut interval = tokio::time::interval(Duration::from_secs(opts.reap_interval as u64));
         interval.reset();
         tokio::pin!(shutdown_rx);
 
         loop {
             tokio::select! {
                 _ = interval.tick() => {
-                    if let Err(e) = reap_be.reap(interval_seconds).await {
+                    if let Err(e) = reap_be.reap(opts.reap_interval).await {
                         error!("error occurred reaping jobs. {}", e.to_string());
                     }
                     interval.reset();

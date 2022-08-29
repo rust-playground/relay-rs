@@ -51,9 +51,9 @@ impl PgStore {
         let pool = PgPoolOptions::new()
             .min_connections(min_connections)
             .max_connections(max_connections)
-            .connect_timeout(Duration::from_secs(5))
+            .acquire_timeout(Duration::from_secs(5))
             .idle_timeout(Duration::from_secs(60))
-            .after_connect(|conn| {
+            .after_connect(|conn, _meta| {
                 Box::pin(async move {
                     // Insurance as if not at least this isolation mode then some queries are not
                     // transactional safe. Specifically FOR UPDATE SKIP LOCKED.
@@ -278,7 +278,10 @@ impl Backend<Box<RawValue>> for PgStore {
             "#,
         )
         .bind(queue)
-        .bind(num_jobs)
+        .bind(match i32::try_from(num_jobs) {
+            Ok(n) => n,
+            Err(_) => i32::MAX,
+        })
         .map(|row: PgRow| {
             // map the row into a user-defined domain type
             let payload: Json<Box<RawValue>> = row.get(4);
@@ -432,14 +435,17 @@ impl Backend<Box<RawValue>> for PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     #[tracing::instrument(name = "pg_reap_timeouts", level = "debug", skip(self))]
-    async fn reap(&self, interval_seconds: i64) -> Result<()> {
+    async fn reap(&self, interval_seconds: u64) -> Result<()> {
         let rows_affected = sqlx::query(
             r#"
             UPDATE internal_state 
             SET last_run=NOW() 
             WHERE last_run <= NOW() - INTERVAL '$1 seconds'"#,
         )
-        .bind(interval_seconds)
+        .bind(match i64::try_from(interval_seconds) {
+            Ok(n) => n,
+            Err(_) => i64::MAX,
+        })
         .execute(&self.pool)
         .await
         .map_err(|e| Error::Backend {
@@ -457,19 +463,34 @@ impl Backend<Box<RawValue>> for PgStore {
 
         let results: Vec<(String, i64)> = sqlx::query_as::<_, (String, i64)>(
             r#"
-               WITH cte_updates AS (
-                   UPDATE jobs
-                   SET in_flight=false,
-                       retries_remaining=retries_remaining-1
-                   WHERE
-                       in_flight=true AND
-                       expires_at < NOW() AND
-                       retries_remaining > 0
-                   RETURNING queue
-               )
-               SELECT queue, COUNT(queue)
-               FROM cte_updates
-               GROUP BY queue
+               WITH cte_max_retries AS (
+                    UPDATE jobs
+                        SET in_flight=false,
+                            retries_remaining=retries_remaining-1
+                        WHERE
+                            in_flight=true AND
+                            expires_at < NOW() AND
+                            retries_remaining > 0
+                        RETURNING queue
+                ),
+                cte_no_max_retries AS (
+                    UPDATE jobs
+                        SET in_flight=false
+                        WHERE
+                            in_flight=true AND
+                            expires_at < NOW() AND
+                            retries_remaining < 0
+                        RETURNING queue
+                )
+                SELECT queue, COUNT(queue)
+                FROM (
+                         SELECT queue
+                         FROM cte_max_retries
+                         UNION ALL
+                         SELECT queue
+                         FROM cte_no_max_retries
+                     ) as grouped
+                GROUP BY queue
             "#,
         )
         .fetch_all(&self.pool)

@@ -10,5 +10,5 @@ pub trait Backend<T> {
     async fn next(&self, queue: &str, num_jobs: u32) -> Result<Option<Vec<Job<T>>>>;
     async fn update(&self, queue: &str, job_id: &str, state: Option<T>) -> Result<()>;
     async fn reschedule(&self, job: &Job<T>) -> Result<()>;
-    async fn reap(&self, interval_seconds: i64) -> Result<()>;
+    async fn reap(&self, interval_seconds: u64) -> Result<()>;
 }
