@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Refactored code for more modular approach. This should allow for more frontends and backend in the future.
 
+### Removed
+- CRON scheduler. With self-perpetuating jobs this is far less useful and anyone can easily implement on their own.
+
+### Added
+- Ability to schedule Jobs with infinite retries by setting max_retries to a negative number eg. -1
+
 ## [0.6.1] - 2022-05-18
 ### Fixed
 - Reschedule metric.
