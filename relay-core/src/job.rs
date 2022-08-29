@@ -17,7 +17,7 @@ pub struct Job<T> {
     pub timeout: i32,
 
     /// Determines how many times the Job can be retried, due to timeouts, before being considered
-    /// permanently failed.
+    /// permanently failed. Infinite retries are supported by using a negative number eg. -1
     #[serde(default)]
     pub max_retries: i32,
 
