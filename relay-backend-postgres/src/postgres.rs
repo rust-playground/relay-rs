@@ -545,17 +545,15 @@ fn is_retryable(e: SQLXError) -> bool {
         sqlx::Error::Database(ref db) => match db.code() {
             None => false,
             Some(code) => {
-                match code.as_ref() {
-                    "53300" | "55P03" | "57014" | "58000" | "58030" => {
-                        // 53300=too_many_connections
-                        // 55P03=lock_not_available
-                        // 57014=query_canceled
-                        // 58000=system_error
-                        // 58030=io_error
-                        true
-                    }
-                    _ => false,
-                }
+                // 53300=too_many_connections
+                // 55P03=lock_not_available
+                // 57014=query_canceled
+                // 58000=system_error
+                // 58030=io_error
+                matches!(
+                    code.as_ref(),
+                    "53300" | "55P03" | "57014" | "58000" | "58030"
+                )
             }
         },
         sqlx::Error::PoolTimedOut => true,
