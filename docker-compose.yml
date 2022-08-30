@@ -1,7 +1,7 @@
 version: "3.7"
 services:
   postgres:
-    image: postgres:10-alpine
+    image: postgres:13-alpine
     ports:
       - "5432:5432"
     volumes:
@@ -10,4 +10,4 @@ services:
       POSTGRES_USER: username
       POSTGRES_PASS: pass
       POSTGRES_HOST_AUTH_METHOD: trust
-      POSTGRES_MULTIPLE_DATABASES: relay,scheduler
+      POSTGRES_MULTIPLE_DATABASES: relay

@@ -1,15 +1,16 @@
 # relay-rs
 
-This contains a no nonsense, horizontally scalable, ordered job runner backed by Postgres, Scheduler
-for running jobs and clients for each.
+This contains a no nonsense, horizontally scalable, ordered job runner backed by Postgres.
 
 #### Crates
 See details for each crate.
 
-| Crate                              | Description                                            |
-|------------------------------------|--------------------------------------------------------|
-| [relay](./relay/README.md)         | No nonsense horizontally scalable, ordered Job Runner. |
-| [scheduler](./scheduler/README.md) | Cron backed Job Scheduler for Relay Jobs.              |
+| Crate                                                         | Description                                   |
+|---------------------------------------------------------------|-----------------------------------------------|
+| [relay](./relay/README.md)                                    | No nonsense horizontally scalable Job Runner. |
+| [relay-core](./relay-core/README.md)                          | Contains all core shared code and logic.      |
+| [relay-frontend-http](./relay-frontend-http/README.md)        | HTTP frontend for Relay.                      |
+| [relay-backend-prostgres](./relay-backend-postgres/README.md) | Postgres backend for Relay.                   |
 
 #### License
 

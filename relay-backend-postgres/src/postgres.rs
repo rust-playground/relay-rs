@@ -1,8 +1,9 @@
 #![allow(clippy::cast_possible_truncation)]
-use crate::{Error, RawJob, Result};
+use async_trait::async_trait;
 use chrono::{NaiveDateTime, TimeZone, Utc};
 use log::LevelFilter;
 use metrics::counter;
+use relay_core::{Backend, Error, Result};
 use serde_json::value::RawValue;
 use sqlx::postgres::types::PgInterval;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgRow};
@@ -11,6 +12,9 @@ use sqlx::{ConnectOptions, Error as SQLXError, Executor, PgPool, Row};
 use std::io::ErrorKind;
 use std::{str::FromStr, time::Duration};
 use tracing::{debug, warn};
+
+/// `RawJob` represents a Relay Job for the Postgres backend.
+type RawJob = relay_core::Job<Box<RawValue>>;
 
 /// Postgres backing store
 pub struct PgStore {
@@ -25,11 +29,7 @@ impl PgStore {
     /// Will return `Err` if connecting the server or running migrations fails.
     #[inline]
     pub async fn default(uri: &str) -> std::result::Result<Self, sqlx::error::Error> {
-        let options = PgConnectOptions::from_str(uri)?
-            .log_statements(LevelFilter::Off)
-            .log_slow_statements(LevelFilter::Warn, Duration::from_secs(1))
-            .clone();
-        Self::new(options).await
+        Self::new(uri, 10, 100).await
     }
 
     /// Creates a new backing store with advanced options.
@@ -38,13 +38,22 @@ impl PgStore {
     ///
     /// Will return `Err` if connecting the server or running migrations fails.
     #[inline]
-    pub async fn new(options: PgConnectOptions) -> std::result::Result<Self, sqlx::error::Error> {
+    pub async fn new(
+        uri: &str,
+        min_connections: u32,
+        max_connections: u32,
+    ) -> std::result::Result<Self, sqlx::error::Error> {
+        let options = PgConnectOptions::from_str(uri)?
+            .log_statements(LevelFilter::Off)
+            .log_slow_statements(LevelFilter::Warn, Duration::from_secs(1))
+            .clone();
+
         let pool = PgPoolOptions::new()
-            .max_connections(100)
-            .min_connections(10)
-            .connect_timeout(Duration::from_secs(5))
+            .min_connections(min_connections)
+            .max_connections(max_connections)
+            .acquire_timeout(Duration::from_secs(5))
             .idle_timeout(Duration::from_secs(60))
-            .after_connect(|conn| {
+            .after_connect(|conn, _meta| {
                 Box::pin(async move {
                     // Insurance as if not at least this isolation mode then some queries are not
                     // transactional safe. Specifically FOR UPDATE SKIP LOCKED.
@@ -83,14 +92,17 @@ impl PgStore {
 
         Ok(Self { pool })
     }
+}
 
+#[async_trait]
+impl Backend<Box<RawValue>> for PgStore {
     /// Enqueues a new Job to be processed.
     ///
     /// # Errors
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     #[tracing::instrument(name = "pg_enqueue", level = "debug", skip_all, fields(job_id=%job.id, queue=%job.queue))]
-    pub async fn enqueue(&self, job: &RawJob) -> Result<()> {
+    async fn enqueue(&self, job: &RawJob) -> Result<()> {
         let now = Utc::now();
         let run_at = if let Some(run_at) = job.run_at {
             run_at
@@ -116,7 +128,7 @@ impl PgStore {
                 if let sqlx::Error::Database(ref db) = e {
                     if let Some(code) = db.code() {
                         // 23505 = unique_violation
-                        if code == "23505" { 
+                        if code == "23505" {
                             return Error::JobExists {
                                 job_id: job.id.clone(),
                                 queue: job.queue.clone(),
@@ -124,7 +136,10 @@ impl PgStore {
                         }
                     }
                 }
-                e.into()
+                Error::Backend {
+                    message: e.to_string(),
+                    is_retryable: is_retryable(e),
+                }
             })?;
         debug!("enqueued job");
         Ok(())
@@ -141,8 +156,11 @@ impl PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     #[tracing::instrument(name = "pg_enqueue_batch", level = "debug", skip_all, fields(jobs = jobs.len()))]
-    pub async fn enqueue_batch(&self, jobs: &[RawJob]) -> Result<()> {
-        let mut transaction = self.pool.begin().await?;
+    async fn enqueue_batch(&self, jobs: &[RawJob]) -> Result<()> {
+        let mut transaction = self.pool.begin().await.map_err(|e| Error::Backend {
+            message: e.to_string(),
+            is_retryable: is_retryable(e),
+        })?;
 
         for job in jobs {
             let now = Utc::now();
@@ -179,10 +197,17 @@ impl PgStore {
             .bind(&now)
             .bind(&run_at)
             .execute(&mut transaction)
-            .await?;
+            .await
+            .map_err(|e| Error::Backend {
+                message: e.to_string(),
+                is_retryable: is_retryable(e),
+            })?;
         }
 
-        transaction.commit().await?;
+        transaction.commit().await.map_err(|e| Error::Backend {
+            message: e.to_string(),
+            is_retryable: is_retryable(e),
+        })?;
         debug!("enqueued batch");
         Ok(())
     }
@@ -193,12 +218,16 @@ impl PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     #[tracing::instrument(name = "pg_remove", level = "debug", skip_all, fields(job_id=%job_id, queue=%queue))]
-    pub async fn remove(&self, queue: &str, job_id: &str) -> Result<()> {
+    async fn remove(&self, queue: &str, job_id: &str) -> Result<()> {
         sqlx::query("DELETE FROM jobs WHERE queue=$1 AND id=$2")
             .bind(queue)
             .bind(job_id)
             .execute(&self.pool)
-            .await?;
+            .await
+            .map_err(|e| Error::Backend {
+                message: e.to_string(),
+                is_retryable: is_retryable(e),
+            })?;
 
         debug!("removed job");
         Ok(())
@@ -210,7 +239,7 @@ impl PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     #[tracing::instrument(name = "pg_next", level = "debug", skip_all, fields(num_jobs=num_jobs, queue=%queue))]
-    pub async fn next(&self, queue: &str, num_jobs: u32) -> Result<Option<Vec<RawJob>>> {
+    async fn next(&self, queue: &str, num_jobs: u32) -> Result<Option<Vec<RawJob>>> {
         // MUST USE CTE WITH `FOR UPDATE SKIP LOCKED LIMIT` otherwise the Postgres Query Planner
         // CAN optimize the query which will cause MORE updates than the LIMIT specifies within
         // a nested loop.
@@ -249,7 +278,10 @@ impl PgStore {
             "#,
         )
         .bind(queue)
-        .bind(num_jobs)
+        .bind(match i32::try_from(num_jobs) {
+            Ok(n) => n,
+            Err(_) => i32::MAX,
+        })
         .map(|row: PgRow| {
             // map the row into a user-defined domain type
             let payload: Json<Box<RawValue>> = row.get(4);
@@ -270,7 +302,11 @@ impl PgStore {
             }
         })
         .fetch_all(&self.pool)
-        .await?;
+        .await
+        .map_err(|e| Error::Backend {
+            message: e.to_string(),
+            is_retryable: is_retryable(e),
+        })?;
 
         if jobs.is_empty() {
             debug!("fetched no jobs");
@@ -288,12 +324,7 @@ impl PgStore {
     /// Will return `Err` if there is any communication issues with the backend Postgres DB or the
     /// Job attempting to be updated cannot be found.
     #[tracing::instrument(name = "pg_update", level = "debug", skip_all, fields(job_id=%job_id, queue=%queue))]
-    pub async fn update(
-        &self,
-        queue: &str,
-        job_id: &str,
-        state: Option<Box<RawValue>>,
-    ) -> Result<()> {
+    async fn update(&self, queue: &str, job_id: &str, state: Option<Box<RawValue>>) -> Result<()> {
         let rows_affected = sqlx::query(
             r#"
                UPDATE jobs
@@ -310,7 +341,11 @@ impl PgStore {
         .bind(job_id)
         .bind(state.map(|state| Some(Json(state))))
         .execute(&self.pool)
-        .await?
+        .await
+        .map_err(|e| Error::Backend {
+            message: e.to_string(),
+            is_retryable: is_retryable(e),
+        })?
         .rows_affected();
 
         if rows_affected == 0 {
@@ -335,7 +370,7 @@ impl PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     #[tracing::instrument(name = "pg_reschedule", level = "debug", skip_all, fields(job_id=%job.id, queue=%job.queue))]
-    pub async fn reschedule(&self, job: &RawJob) -> Result<()> {
+    async fn reschedule(&self, job: &RawJob) -> Result<()> {
         let now = Utc::now();
         let run_at = if let Some(run_at) = job.run_at {
             run_at
@@ -375,7 +410,11 @@ impl PgStore {
         .bind(&now)
         .bind(&run_at)
         .execute(&self.pool)
-        .await?
+        .await
+        .map_err(|e| Error::Backend {
+            message: e.to_string(),
+            is_retryable: is_retryable(e),
+        })?
         .rows_affected();
 
         if rows_affected == 0 {
@@ -396,16 +435,23 @@ impl PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     #[tracing::instrument(name = "pg_reap_timeouts", level = "debug", skip(self))]
-    pub async fn reap_timeouts(&self, interval_seconds: i64) -> Result<()> {
+    async fn reap(&self, interval_seconds: u64) -> Result<()> {
         let rows_affected = sqlx::query(
             r#"
             UPDATE internal_state 
             SET last_run=NOW() 
             WHERE last_run <= NOW() - INTERVAL '$1 seconds'"#,
         )
-        .bind(interval_seconds)
+        .bind(match i64::try_from(interval_seconds) {
+            Ok(n) => n,
+            Err(_) => i64::MAX,
+        })
         .execute(&self.pool)
-        .await?
+        .await
+        .map_err(|e| Error::Backend {
+            message: e.to_string(),
+            is_retryable: is_retryable(e),
+        })?
         .rows_affected();
 
         // another instance has already updated OR time hasn't been hit yet
@@ -417,23 +463,42 @@ impl PgStore {
 
         let results: Vec<(String, i64)> = sqlx::query_as::<_, (String, i64)>(
             r#"
-               WITH cte_updates AS (
-                   UPDATE jobs
-                   SET in_flight=false,
-                       retries_remaining=retries_remaining-1
-                   WHERE
-                       in_flight=true AND
-                       expires_at < NOW() AND
-                       retries_remaining > 0
-                   RETURNING queue
-               )
-               SELECT queue, COUNT(queue)
-               FROM cte_updates
-               GROUP BY queue
+               WITH cte_max_retries AS (
+                    UPDATE jobs
+                        SET in_flight=false,
+                            retries_remaining=retries_remaining-1
+                        WHERE
+                            in_flight=true AND
+                            expires_at < NOW() AND
+                            retries_remaining > 0
+                        RETURNING queue
+                ),
+                cte_no_max_retries AS (
+                    UPDATE jobs
+                        SET in_flight=false
+                        WHERE
+                            in_flight=true AND
+                            expires_at < NOW() AND
+                            retries_remaining < 0
+                        RETURNING queue
+                )
+                SELECT queue, COUNT(queue)
+                FROM (
+                         SELECT queue
+                         FROM cte_max_retries
+                         UNION ALL
+                         SELECT queue
+                         FROM cte_no_max_retries
+                     ) as grouped
+                GROUP BY queue
             "#,
         )
         .fetch_all(&self.pool)
-        .await?;
+        .await
+        .map_err(|e| Error::Backend {
+            message: e.to_string(),
+            is_retryable: is_retryable(e),
+        })?;
 
         for (queue, count) in results {
             debug!(queue = %queue, count = count, "retrying jobs");
@@ -456,7 +521,11 @@ impl PgStore {
             "#,
         )
         .fetch_all(&self.pool)
-        .await?;
+        .await
+        .map_err(|e| Error::Backend {
+            message: e.to_string(),
+            is_retryable: is_retryable(e),
+        })?;
 
         for (queue, count) in results {
             warn!(
@@ -476,17 +545,15 @@ fn is_retryable(e: SQLXError) -> bool {
         sqlx::Error::Database(ref db) => match db.code() {
             None => false,
             Some(code) => {
-                match code.as_ref() {
-                    "53300" | "55P03" | "57014" | "58000" | "58030" => {
-                        // 53300=too_many_connections
-                        // 55P03=lock_not_available
-                        // 57014=query_canceled
-                        // 58000=system_error
-                        // 58030=io_error
-                        true
-                    }
-                    _ => false,
-                }
+                // 53300=too_many_connections
+                // 55P03=lock_not_available
+                // 57014=query_canceled
+                // 58000=system_error
+                // 58030=io_error
+                matches!(
+                    code.as_ref(),
+                    "53300" | "55P03" | "57014" | "58000" | "58030"
+                )
             }
         },
         sqlx::Error::PoolTimedOut => true,
@@ -502,15 +569,6 @@ fn is_retryable(e: SQLXError) -> bool {
                 | ErrorKind::UnexpectedEof
         ),
         _ => false,
-    }
-}
-
-impl From<sqlx::Error> for Error {
-    fn from(e: sqlx::Error) -> Self {
-        Error::Postgres {
-            message: e.to_string(),
-            is_retryable: is_retryable(e),
-        }
     }
 }
 

@@ -1,31 +1,27 @@
 [package]
 name = "relay"
-version = "0.6.1"
+version = "0.7.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.57"
-clap = { version = "3.1.18", features = ["derive", "env"] }
-tokio = { version = "1.18.2", features = ["rt-multi-thread", "net", "time","macros"] }
-tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
-metrics-exporter-prometheus = { version = "0.9.0", optional = true }
-metrics-util = "0.12.1"
-metrics = "0.18.1"
-chrono = { version = "0.4.19", features = ["serde"] }
-serde = { version = "1.0.137", features = ["derive"] }
-serde_json = { version = "1.0.81", features = ["raw_value"] }
-log = "0.4.17"
-tracing = "0.1.34"
-sqlx = { version = "0.5.13", features = ["postgres", "chrono","runtime-tokio-rustls", "all-types", "migrate"] }
-actix-web = { version = "4.0.1", default-features = false, features = ["compress-gzip", "rustls"] }
-thiserror = "1.0.31"
-anydate = { version = "0.3.0", features = ["serde"] }
-
-[dev-dependencies]
-uuid = { version = "1.0.0", features = ["v4"] }
+anyhow = "1.0.62"
+clap = { version = "3.2.17", features = ["derive", "env"] }
+tokio = { version = "1.20.1", features = ["rt-multi-thread", "net", "time","macros"] }
+tracing-subscriber = { version = "0.3.14", features = ["env-filter"] }
+metrics-exporter-prometheus = { version = "0.11.0", optional = true }
+metrics-util = "0.14.0"
+metrics = "0.20.1"
+serde_json = { version = "1.0.85", features = ["raw_value"] }
+tracing = "0.1.35"
+relay-core = { version = "0.1", path="../relay-core" }
+relay-frontend-http = { version = "0.1", path = "../relay-frontend-http", optional = true}
+relay-backend-postgres = { version = "0.1", path = "../relay-backend-postgres", optional = true}
 
 [features]
-default = []
+default = ["frontend-http","backend-postgres"]
 metrics-prometheus = ["metrics-exporter-prometheus"]
+frontend-http = ["relay-frontend-http"]
+backend-postgres = ["relay-backend-postgres"]
+

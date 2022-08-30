@@ -11,12 +11,12 @@ Enqueues a Job to be processed.
 #### Arguments
 In this case the only arguments are part of the Body payload.
 
-| argument    | required | description                                                                                                                                                                            |
-|-------------|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| argument      | required | description                                                                                                                                                                            |
+|---------------|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `id`          | true     | The unique Job Id which is also CAN be used to ensure the Job is a singleton within a Queue.                                                                                           |
 | `queue`       | true     | Is used to differentiate different job types that can be picked up by job runners.                                                                                                     |
 | `timeout`     | true     | Denotes the duration, in seconds, after a Job has started processing or since the last heartbeat request occurred before considering the Job failed and being put back into the queue. |
-| `max_retries` | false    | Determines how many times the Job can be retried, due to timeouts, before being considered.                                                                                            |
+| `max_retries` | false    | Determines how many times the Job can be retried, due to timeouts, before being considered. Infinite retries are supported by using a negative number eg. -1                           |
 | `payload`     | false    | The raw JSON payload that the job runner will receive.                                                                                                                                 |
 | `run_at`      | false    | Schedule/set a Job to be run only at a specific time in the future.                                                                                                                    |
 
