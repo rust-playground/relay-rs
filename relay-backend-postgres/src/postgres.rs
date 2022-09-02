@@ -796,10 +796,10 @@ mod tests {
         };
         store.enqueue_batch(&[job.clone()]).await?;
 
-        let exists = store.exists(&queue, &job_id)?;
+        let exists = store.exists(&queue, &job_id).await?;
         assert_eq!(exists, true);
 
-        let db_job = store.get(&queue, &job_id)?;
+        let db_job = store.get(&queue, &job_id).await?;
         assert_eq!(db_job, job);
 
         let next_job = store.next(&queue, 1).await?;
