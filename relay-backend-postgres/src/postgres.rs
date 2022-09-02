@@ -800,7 +800,7 @@ mod tests {
         assert_eq!(exists, true);
 
         let db_job = store.get(&queue, &job_id).await?;
-        assert_eq!(db_job, job);
+        assert_eq!(db_job, Some(job.clone()));
 
         let next_job = store.next(&queue, 1).await?;
         assert!(next_job.is_some());
@@ -808,6 +808,10 @@ mod tests {
         assert_eq!(next_job.len(), 1);
         assert_eq!(next_job[0].id, job_id);
         store.remove(&queue, &job_id).await?;
+
+        let db_job = store.get(&queue, &job_id).await?;
+        assert_eq!(db_job, None);
+
         Ok(())
     }
 
