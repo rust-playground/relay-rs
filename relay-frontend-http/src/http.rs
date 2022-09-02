@@ -105,7 +105,9 @@ where
             Error::JobExists { .. } => {
                 HttpResponse::build(StatusCode::CONFLICT).body(e.to_string())
             }
-            _ => HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string()),
+            Error::JobNotFound { .. } => {
+                HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string())
+            }
         }
     } else {
         HttpResponse::build(StatusCode::ACCEPTED).finish()
@@ -123,17 +125,17 @@ const fn default_num_jobs() -> u32 {
     1
 }
 
-#[tracing::instrument(name = "http_fetch", level = "debug", skip_all)]
-async fn fetch<BE, T>(data: web::Data<Arc<BE>>, info: web::Query<NextInfo>) -> HttpResponse
+#[tracing::instrument(name = "http_next", level = "debug", skip_all)]
+async fn next<BE, T>(data: web::Data<Arc<BE>>, info: web::Query<NextInfo>) -> HttpResponse
 where
     T: Serialize,
     BE: Backend<T>,
 {
-    increment_counter!("http_request", "endpoint" => "fetch", "queue" => info.queue.clone());
+    increment_counter!("http_request", "endpoint" => "next", "queue" => info.queue.clone());
 
-    match data.fetch(&info.queue, info.num_jobs).await {
+    match data.next(&info.queue, info.num_jobs).await {
         Err(e) => {
-            increment_counter!("errors", "endpoint" => "fetch", "type" => e.error_type(), "queue" => e.queue());
+            increment_counter!("errors", "endpoint" => "next", "type" => e.error_type(), "queue" => e.queue());
             if let Error::Backend { .. } = e {
                 if e.is_retryable() {
                     HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
@@ -288,7 +290,7 @@ impl Server {
                 .route("/v1/jobs", web::delete().to(delete::<BE, T>))
                 .route("/v1/jobs", web::head().to(exists::<BE, T>))
                 .route("/v1/jobs", web::get().to(get::<BE, T>))
-                .route("/v1/jobs/fetch", web::get().to(fetch::<BE, T>))
+                .route("/v1/jobs/next", web::get().to(next::<BE, T>))
                 .route("/v1/jobs/heartbeat", web::patch().to(heartbeat::<BE, T>))
                 .route("/v1/jobs/reschedule", web::post().to(reschedule::<BE, T>))
                 .route("/health", web::get().to(health))

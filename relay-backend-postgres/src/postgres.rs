@@ -365,8 +365,8 @@ impl Backend<Box<RawValue>> for PgStore {
     /// # Errors
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
-    #[tracing::instrument(name = "pg_fetch", level = "debug", skip_all, fields(num_jobs=num_jobs, queue=%queue))]
-    async fn fetch(&self, queue: &str, num_jobs: u32) -> Result<Option<Vec<RawJob>>> {
+    #[tracing::instrument(name = "pg_next", level = "debug", skip_all, fields(num_jobs=num_jobs, queue=%queue))]
+    async fn next(&self, queue: &str, num_jobs: u32) -> Result<Option<Vec<RawJob>>> {
         // MUST USE CTE WITH `FOR UPDATE SKIP LOCKED LIMIT` otherwise the Postgres Query Planner
         // CAN optimize the query which will cause MORE updates than the LIMIT specifies within
         // a nested loop.
@@ -766,14 +766,14 @@ mod tests {
             run_at: None,
             updated_at: None,
         };
-        store.enqueue(&job).await?;
+        store.create(&[job.clone()]).await?;
 
         let next_job = store.next(&queue, 1).await?;
         assert!(next_job.is_some());
         let next_job = next_job.unwrap();
         assert_eq!(next_job.len(), 1);
         assert_eq!(next_job[0].id, job.id);
-        store.remove(&job.queue, &job.id).await?;
+        store.delete(&job.queue, &job.id).await?;
         Ok(())
     }
 
@@ -794,12 +794,12 @@ mod tests {
             run_at: Some(run_at),
             updated_at: None,
         };
-        store.enqueue_batch(&[job.clone()]).await?;
+        store.create(&[job.clone()]).await?;
 
         let exists = store.exists(&queue, &job_id).await?;
         assert!(exists);
 
-        let db_job = store.get(&queue, &job_id).await?;
+        let db_job = store.read(&queue, &job_id).await?;
         assert!(db_job.is_some());
 
         let db_job = db_job.unwrap();
@@ -815,9 +815,9 @@ mod tests {
         let next_job = next_job.unwrap();
         assert_eq!(next_job.len(), 1);
         assert_eq!(next_job[0].id, job_id);
-        store.remove(&queue, &job_id).await?;
+        store.delete(&queue, &job_id).await?;
 
-        let db_job = store.get(&queue, &job_id).await?;
+        let db_job = store.read(&queue, &job_id).await?;
         assert!(db_job.is_none());
 
         Ok(())
@@ -839,7 +839,7 @@ mod tests {
             run_at: None,
             updated_at: None,
         };
-        store.enqueue(&job).await?;
+        store.create(&[job.clone()]).await?;
 
         let next_job = store.next(&queue, 1).await?;
         assert!(next_job.is_some());
@@ -855,7 +855,7 @@ mod tests {
         assert_eq!(next_job.len(), 1);
         assert_eq!(next_job[0].id, job.id);
 
-        store.remove(&job.queue, &job.id).await?;
+        store.delete(&job.queue, &job.id).await?;
         Ok(())
     }
 
@@ -875,7 +875,7 @@ mod tests {
             run_at: None,
             updated_at: None,
         };
-        store.enqueue(&job).await?;
+        store.create(&[job.clone()]).await?;
 
         let next_job = store.next(&queue, 1).await?;
         assert!(next_job.is_some());
@@ -889,7 +889,7 @@ mod tests {
         let next_job = store.next(&queue, 1).await?;
         assert!(next_job.is_none());
 
-        store.remove(&job.queue, &job.id).await?;
+        store.delete(&job.queue, &job.id).await?;
         Ok(())
     }
 }
