@@ -357,7 +357,7 @@ impl Backend<Box<RawValue>> for PgStore {
             debug!("fetched no jobs");
             Ok(None)
         } else {
-            for job in jobs.iter() {
+            for job in &jobs {
                 // using updated_at because this handles:
                 // - enqueue -> processing
                 // - reschedule -> processing
@@ -365,7 +365,7 @@ impl Backend<Box<RawValue>> for PgStore {
                 // This is a possible indicator not enough consumers/processors on the calling side
                 // and jobs are backed up processing.
                 if let Ok(d) = (Utc::now() - job.updated_at.unwrap()).to_std() {
-                    histogram!("latency", d, "queue" => job.queue.to_owned(), "type" => "to_processing");
+                    histogram!("latency", d, "queue" => job.queue.clone(), "type" => "to_processing");
                 }
             }
             counter!("fetched", jobs.len() as u64, "queue" => queue.to_owned());
@@ -499,7 +499,7 @@ impl Backend<Box<RawValue>> for PgStore {
             increment_counter!("rescheduled", "queue" => job.queue.clone());
 
             if let Ok(d) = (Utc::now() - run_at).to_std() {
-                histogram!("duration", d, "queue" => job.queue.to_owned(), "type" => "rescheduled");
+                histogram!("duration", d, "queue" => job.queue.clone(), "type" => "rescheduled");
             }
             debug!("rescheduled job");
             Ok(())
