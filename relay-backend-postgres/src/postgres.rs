@@ -749,6 +749,7 @@ fn is_retryable(e: SQLXError) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::SubsecRound;
     use uuid::Uuid;
 
     #[tokio::test]
@@ -784,7 +785,7 @@ mod tests {
         let store = PgStore::default(&db_url).await?;
         let job_id = Uuid::new_v4().to_string();
         let queue = Uuid::new_v4().to_string();
-        let run_at = Utc::now();
+        let run_at = Utc.timestamp_millis(Utc::now().timestamp_millis());
         let job = RawJob {
             id: job_id.clone(),
             queue: queue.clone(),
