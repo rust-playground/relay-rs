@@ -793,7 +793,7 @@ mod tests {
             payload: RawValue::from_string("{}".to_string())?,
             state: None,
             run_at: Some(run_at.clone()),
-            updated_at: Some(run_at),
+            updated_at: None,
         };
         store.enqueue_batch(&[job.clone()]).await?;
 
@@ -801,7 +801,16 @@ mod tests {
         assert_eq!(exists, true);
 
         let db_job = store.get(&queue, &job_id).await?;
-        assert_eq!(db_job, Some(job.clone()));
+        assert!(db_job.is_some());
+
+        let db_job = db_job.unwrap();
+        assert_eq!(db_job.id, job.id);
+        assert_eq!(db_job.queue, job.queue);
+        assert_eq!(db_job.timeout, job.timeout);
+        assert_eq!(db_job.max_retries, job.max_retries);
+        assert_eq!(db_job.run_at, job.run_at);
+        assert_eq!(db_job.updated_at, job.updated_at);
+        assert_eq!(db_job.payload.to_string(), job.payload.to_string());
 
         let next_job = store.next(&queue, 1).await?;
         assert!(next_job.is_some());
