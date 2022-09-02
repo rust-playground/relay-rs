@@ -199,8 +199,8 @@ impl Backend<Box<RawValue>> for PgStore {
             })
             .bind(job.max_retries)
             .bind(Json(&job.payload))
-            .bind(&now)
-            .bind(&run_at)
+            .bind(now)
+            .bind(run_at)
             .execute(&mut transaction)
             .await
             .map_err(|e| Error::Backend {
