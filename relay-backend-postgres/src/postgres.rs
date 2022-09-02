@@ -784,6 +784,7 @@ mod tests {
         let store = PgStore::default(&db_url).await?;
         let job_id = Uuid::new_v4().to_string();
         let queue = Uuid::new_v4().to_string();
+        let run_at = Utc::now();
         let job = RawJob {
             id: job_id.clone(),
             queue: queue.clone(),
@@ -791,8 +792,8 @@ mod tests {
             max_retries: 3,
             payload: RawValue::from_string("{}".to_string())?,
             state: None,
-            run_at: None,
-            updated_at: None,
+            run_at: Some(now.clone()),
+            updated_at: Some(now),
         };
         store.enqueue_batch(&[job.clone()]).await?;
 
