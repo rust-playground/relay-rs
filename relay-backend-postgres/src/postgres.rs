@@ -122,8 +122,8 @@ impl Backend<Box<RawValue>> for PgStore {
             }  )
             .bind(job.max_retries)
             .bind(Json(&job.payload))
-            .bind(&now)
-            .bind(&run_at)
+            .bind(now)
+            .bind(run_at)
             .execute(&self.pool)
             .await
             .map_err(|e| {
@@ -478,8 +478,8 @@ impl Backend<Box<RawValue>> for PgStore {
         .bind(job.max_retries)
         .bind(Json(&job.payload))
         .bind(job.state.as_ref().map(|state| Some(Json(state))))
-        .bind(&now)
-        .bind(&run_at)
+        .bind(now)
+        .bind(run_at)
         .fetch_optional(&self.pool)
         .await
         .map(|row| {
@@ -674,6 +674,7 @@ mod tests {
             payload: RawValue::from_string("{}".to_string())?,
             state: None,
             run_at: None,
+            updated_at: None,
         };
         store.enqueue(&job).await?;
 
@@ -700,6 +701,7 @@ mod tests {
             payload: RawValue::from_string("{}".to_string())?,
             state: None,
             run_at: None,
+            updated_at: None,
         };
         store.enqueue_batch(&[job]).await?;
 
@@ -726,6 +728,7 @@ mod tests {
             payload: RawValue::from_string("{}".to_string())?,
             state: None,
             run_at: None,
+            updated_at: None,
         };
         store.enqueue(&job).await?;
 
@@ -761,6 +764,7 @@ mod tests {
             payload: RawValue::from_string("{}".to_string())?,
             state: None,
             run_at: None,
+            updated_at: None,
         };
         store.enqueue(&job).await?;
 
