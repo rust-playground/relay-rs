@@ -792,13 +792,13 @@ mod tests {
             max_retries: 3,
             payload: RawValue::from_string("{}".to_string())?,
             state: None,
-            run_at: Some(run_at.clone()),
+            run_at: Some(run_at),
             updated_at: None,
         };
         store.enqueue_batch(&[job.clone()]).await?;
 
         let exists = store.exists(&queue, &job_id).await?;
-        assert_eq!(exists, true);
+        assert!(exists);
 
         let db_job = store.get(&queue, &job_id).await?;
         assert!(db_job.is_some());
