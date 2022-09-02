@@ -382,7 +382,7 @@ impl Backend<Box<RawValue>> for PgStore {
     /// Job attempting to be updated cannot be found.
     #[tracing::instrument(name = "pg_update", level = "debug", skip_all, fields(job_id=%job_id, queue=%queue))]
     async fn update(&self, queue: &str, job_id: &str, state: Option<Box<RawValue>>) -> Result<()> {
-        let rows_affected = sqlx::query(
+        let run_at = sqlx::query(
             r#"
                UPDATE jobs
                SET state=$3,
@@ -392,29 +392,41 @@ impl Backend<Box<RawValue>> for PgStore {
                    queue=$1 AND
                    id=$2 AND
                    in_flight=true
+               RETURNING (SELECT run_at FROM jobs WHERE queue=$1 AND id=$2 AND in_flight=true)
             "#,
         )
         .bind(queue)
         .bind(job_id)
         .bind(state.map(|state| Some(Json(state))))
-        .execute(&self.pool)
+        .fetch_optional(&self.pool)
         .await
+        .map(|row| {
+            if let Some(row) = row {
+                let run_at: NaiveDateTime = row.get(0);
+                Some(Utc.from_utc_datetime(&run_at))
+            } else {
+                None
+            }
+        })
         .map_err(|e| Error::Backend {
             message: e.to_string(),
             is_retryable: is_retryable(e),
-        })?
-        .rows_affected();
+        })?;
 
-        if rows_affected == 0 {
+        if let Some(run_at) = run_at {
+            increment_counter!("updated", "queue" => queue.to_owned());
+
+            if let Ok(d) = (Utc::now() - run_at).to_std() {
+                histogram!("duration", d, "queue" => queue.to_owned(), "type" => "running");
+            }
+            debug!("updated job");
+            Ok(())
+        } else {
             debug!("job not found");
             Err(Error::JobNotFound {
                 job_id: job_id.to_string(),
                 queue: queue.to_string(),
             })
-        } else {
-            increment_counter!("updated", "queue" => queue.to_owned());
-            debug!("updated job");
-            Ok(())
         }
     }
 
@@ -604,7 +616,7 @@ impl Backend<Box<RawValue>> for PgStore {
                 queue = %queue,
                 "deleted records from queue that reached their max retries"
             );
-            counter!("errors", u64::try_from(count).unwrap_or_default(), "queue" => queue);
+            counter!("errors", u64::try_from(count).unwrap_or_default(), "queue" => queue, "type" => "max_retries");
         }
         Ok(())
     }
