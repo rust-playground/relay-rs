@@ -268,7 +268,7 @@ impl Backend<Box<RawValue>> for PgStore {
             increment_counter!("removed", "queue" => queue.to_owned());
 
             if let Ok(d) = (Utc::now() - run_at).to_std() {
-                histogram!("duration", d, "type" => "remove", "queue" => queue.to_owned());
+                histogram!("duration", d, "queue" => queue.to_owned(), "type" => "remove");
             }
             debug!("removed job");
         }
@@ -316,7 +316,8 @@ impl Backend<Box<RawValue>> for PgStore {
                          j.max_retries,
                          j.data,
                          j.state,
-                         j.run_at
+                         j.run_at,
+                         j.updated_at
             "#,
         )
         .bind(queue)
@@ -330,6 +331,7 @@ impl Backend<Box<RawValue>> for PgStore {
             let state: Option<Json<Box<RawValue>>> = row.get(5);
             let timeout: PgInterval = row.get(2);
             let run_at: NaiveDateTime = row.get(6);
+            let updated_at: NaiveDateTime = row.get(7);
 
             RawJob {
                 id: row.get(0),
@@ -341,6 +343,7 @@ impl Backend<Box<RawValue>> for PgStore {
                     Json(state) => state,
                 }),
                 run_at: Some(Utc.from_utc_datetime(&run_at)),
+                updated_at: Some(Utc.from_utc_datetime(&updated_at)),
             }
         })
         .fetch_all(&self.pool)
@@ -354,6 +357,17 @@ impl Backend<Box<RawValue>> for PgStore {
             debug!("fetched no jobs");
             Ok(None)
         } else {
+            for job in jobs.iter() {
+                // using updated_at because this handles:
+                // - enqueue -> processing
+                // - reschedule -> processing
+                // - reaped -> processing
+                // This is a possible indicator not enough consumers/processors on the calling side
+                // and jobs are backed up processing.
+                if let Ok(d) = (Utc::now() - job.updated_at.unwrap()).to_std() {
+                    histogram!("latency", d, "queue" => job.queue.to_owned(), "type" => "to_processing");
+                }
+            }
             counter!("fetched", jobs.len() as u64, "queue" => queue.to_owned());
             debug!(fetched_jobs = jobs.len(), "fetched next job(s)");
             Ok(Some(jobs))
@@ -422,8 +436,6 @@ impl Backend<Box<RawValue>> for PgStore {
             now
         };
 
-        dbg!(&job);
-
         let run_at = sqlx::query(
             r#"
                 UPDATE jobs
@@ -471,12 +483,11 @@ impl Backend<Box<RawValue>> for PgStore {
             is_retryable: is_retryable(e),
         })?;
 
-        dbg!(run_at);
         if let Some(run_at) = run_at {
             increment_counter!("rescheduled", "queue" => job.queue.clone());
 
             if let Ok(d) = (Utc::now() - run_at).to_std() {
-                histogram!("duration", d, "type" => "rescheduled", "queue" => job.queue.to_owned());
+                histogram!("duration", d, "queue" => job.queue.to_owned(), "type" => "rescheduled");
             }
             debug!("rescheduled job");
             Ok(())
