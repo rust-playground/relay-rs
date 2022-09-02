@@ -809,7 +809,6 @@ mod tests {
         assert_eq!(db_job.timeout, job.timeout);
         assert_eq!(db_job.max_retries, job.max_retries);
         assert_eq!(db_job.run_at, job.run_at);
-        assert_eq!(db_job.updated_at, job.updated_at);
         assert_eq!(db_job.payload.to_string(), job.payload.to_string());
 
         let next_job = store.next(&queue, 1).await?;
@@ -820,7 +819,7 @@ mod tests {
         store.remove(&queue, &job_id).await?;
 
         let db_job = store.get(&queue, &job_id).await?;
-        assert_eq!(db_job, None);
+        assert!(db_job.is_none());
 
         Ok(())
     }
