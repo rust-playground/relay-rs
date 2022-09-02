@@ -10,6 +10,81 @@ use std::sync::Arc;
 /// The internal HTTP server representation for Jobs.
 pub struct Server;
 
+#[derive(Deserialize)]
+struct GetInfo {
+    queue: String,
+    job_id: String,
+}
+
+#[tracing::instrument(name = "http_get", level = "debug", skip_all)]
+async fn get<BE, T>(data: web::Data<Arc<BE>>, info: web::Query<GetInfo>) -> HttpResponse
+where
+    T: Serialize,
+    BE: Backend<T>,
+{
+    increment_counter!("http_request", "endpoint" => "get", "queue" => info.queue.clone());
+
+    match data.get(&info.queue, &info.job_id).await {
+        Ok(job) => {
+            if let Some(job) = job {
+                HttpResponse::build(StatusCode::OK).json(job)
+            } else {
+                HttpResponse::build(StatusCode::NOT_FOUND).finish()
+            }
+        }
+        Err(e) => {
+            increment_counter!("errors", "endpoint" => "get", "type" => e.error_type(), "queue" => e.queue());
+            match e {
+                Error::Backend { .. } => {
+                    if e.is_retryable() {
+                        HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
+                    } else {
+                        HttpResponse::build(StatusCode::UNPROCESSABLE_ENTITY).body(e.to_string())
+                    }
+                }
+                _ => HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string()),
+            }
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct ExistsInfo {
+    queue: String,
+    job_id: String,
+}
+
+#[tracing::instrument(name = "http_exists", level = "debug", skip_all)]
+async fn exists<BE, T>(data: web::Data<Arc<BE>>, info: web::Query<ExistsInfo>) -> HttpResponse
+where
+    BE: Backend<T>,
+{
+    increment_counter!("http_request", "endpoint" => "exists", "queue" => info.queue.clone());
+
+    match data.exists(&info.queue, &info.job_id).await {
+        Ok(exists) => {
+            if exists {
+                HttpResponse::build(StatusCode::OK).finish()
+            } else {
+                HttpResponse::build(StatusCode::NOT_FOUND).finish()
+            }
+        }
+        Err(e) => {
+            increment_counter!("errors", "endpoint" => "exists", "type" => e.error_type(), "queue" => e.queue());
+            match e {
+                Error::Backend { .. } => {
+                    if e.is_retryable() {
+                        HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
+                    } else {
+                        HttpResponse::build(StatusCode::UNPROCESSABLE_ENTITY).body(e.to_string())
+                    }
+                }
+                _ => HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string()),
+            }
+        }
+    }
+}
+
 #[tracing::instrument(name = "http_enqueue", level = "debug", skip_all)]
 async fn enqueue<BE, T>(data: web::Data<Arc<BE>>, job: web::Json<Job<T>>) -> HttpResponse
 where
@@ -244,6 +319,8 @@ impl Server {
                 .route("/reschedule", web::post().to(reschedule::<BE, T>))
                 .route("/complete", web::delete().to(complete::<BE, T>))
                 .route("/next", web::get().to(next::<BE, T>))
+                .route("/job", web::head().to(exists::<BE, T>))
+                .route("/job", web::get().to(get::<BE, T>))
                 .route("/health", web::get().to(health))
         })
         .bind(addr)?

@@ -233,3 +233,68 @@ NOTE: The body of the response will have more detail about the specific error.
 | 404   | Job was not found for completing.                                           |
 | 422   | A permanent error has occurred.                                             |
 | 500   | An unknown error has occurred server side.                                  |
+
+
+### `HEAD /v1/exists`
+
+Using HTTP response codes returns if the Job exists.
+
+### Arguments
+
+In this case the only arguments are query params.
+
+| argument | required | description                          |
+|----------|----------|--------------------------------------|
+| `queue`    | true     | The Queue to remove the `job_id` from. |
+| `job_id`   | true     | The Job ID to remove from the `queue`. |
+
+### Response Codes
+
+NOTE: The body of the response will have more detail about the specific error.
+
+| code  | description                                                                |
+|-------|----------------------------------------------------------------------------|
+| 200   | Job exists                                                                 |
+| 429   | A retryable error occurred. Most likely the backing storage having issues. |
+| 404   | Job was not found and so did not exist.                                    |
+| 422   | A permanent error has occurred.                                            |
+| 500   | An unknown error has occurred server side.                                 |
+
+
+### `GET /get`
+
+Fetches the Job from the database if it exists.
+
+#### Arguments
+In this case the only arguments are part of the Body payload.
+
+| argument    | required | description                                                                                                                                                                            |
+|-------------|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `id`          | true     | The unique Job Id which is also CAN be used to ensure the Job is a singleton within a Queue.                                                                                           |
+| `queue`       | true     | Is used to differentiate different job types that can be picked up by job runners.                                                                                                     |
+
+#### Request Body
+```json
+[
+    {
+      "id": "1",
+      "queue": "my-queue",
+      "timeout": 30,
+      "max_retries": 0,
+      "payload": "RAW JSON",
+      ...
+    }
+]
+```
+
+### Response Codes
+
+NOTE: The body of the response will have more detail about the specific error.
+
+| code | description                                                               |
+|------|---------------------------------------------------------------------------|
+| 200  | Job found and in the response body.                                       |
+| 400  | For a bad/ill-formed request.                                             |
+| 429  | A retryable error occurred. Most likely the backing storage having issues. |
+| 422  | A permanent error has occurred.                                           |
+| 500  | An unknown error has occurred server side.                                |
