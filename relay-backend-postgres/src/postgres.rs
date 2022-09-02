@@ -749,7 +749,6 @@ fn is_retryable(e: SQLXError) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::SubsecRound;
     use uuid::Uuid;
 
     #[tokio::test]
@@ -793,8 +792,8 @@ mod tests {
             max_retries: 3,
             payload: RawValue::from_string("{}".to_string())?,
             state: None,
-            run_at: Some(now.clone()),
-            updated_at: Some(now),
+            run_at: Some(run_at.clone()),
+            updated_at: Some(run_at),
         };
         store.enqueue_batch(&[job.clone()]).await?;
 
