@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use chrono::{NaiveDateTime, TimeZone, Utc};
 use log::LevelFilter;
 use metrics::{counter, histogram, increment_counter};
-use relay_core::{Backend, Error, Result};
+use relay_core::{Backend, Error, Job, Result};
 use serde_json::value::RawValue;
 use sqlx::postgres::types::PgInterval;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgRow};
@@ -98,6 +98,101 @@ impl PgStore {
 
 #[async_trait]
 impl Backend<Box<RawValue>> for PgStore {
+    /// Returns, if available, the Job in the database with the provided queue and id.
+    ///
+    /// This would mainly be used to retried state information from the database about a Job.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if there is any communication issues with the backend Postgres DB.
+    #[tracing::instrument(name = "pg_exists", level = "debug", skip_all, fields(job_id=%job_id, queue=%queue))]
+    async fn get(&self, queue: &str, job_id: &str) -> Result<Option<Job<Box<RawValue>>>> {
+        let job = sqlx::query(
+            r#"
+               SELECT id,
+                      queue,
+                      timeout,
+                      max_retries,
+                      data,
+                      state,
+                      run_at,
+                      updated_at
+               FROM jobs
+               WHERE
+                    queue=$1 AND
+                    id=$2
+            "#,
+        )
+        .bind(queue)
+        .bind(job_id)
+        .map(|row: PgRow| {
+            // map the row into a user-defined domain type
+            let payload: Json<Box<RawValue>> = row.get(4);
+            let state: Option<Json<Box<RawValue>>> = row.get(5);
+            let timeout: PgInterval = row.get(2);
+            let run_at: NaiveDateTime = row.get(6);
+            let updated_at: NaiveDateTime = row.get(7);
+
+            RawJob {
+                id: row.get(0),
+                queue: row.get(1),
+                timeout: (timeout.microseconds / 1_000_000) as i32,
+                max_retries: row.get(3),
+                payload: payload.0,
+                state: state.map(|state| match state {
+                    Json(state) => state,
+                }),
+                run_at: Some(Utc.from_utc_datetime(&run_at)),
+                updated_at: Some(Utc.from_utc_datetime(&updated_at)),
+            }
+        })
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| Error::Backend {
+            message: e.to_string(),
+            is_retryable: is_retryable(e),
+        })?;
+        increment_counter!("get", "queue" => queue.to_owned());
+        debug!("get job");
+        Ok(job)
+    }
+
+    /// Checks and returns if a Job exists in the database with the provided queue and id.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if there is any communication issues with the backend Postgres DB.
+    #[tracing::instrument(name = "pg_exists", level = "debug", skip_all, fields(job_id=%job_id, queue=%queue))]
+    async fn exists(&self, queue: &str, job_id: &str) -> Result<bool> {
+        let exists: bool = sqlx::query(
+            r#"
+                    SELECT EXISTS (
+                        SELECT 1 FROM jobs WHERE
+                            queue=$1 AND
+                            id=$2
+                    )
+                "#,
+        )
+        .bind(queue)
+        .bind(job_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map(|row| {
+            if let Some(row) = row {
+                row.get(0)
+            } else {
+                false
+            }
+        })
+        .map_err(|e| Error::Backend {
+            message: e.to_string(),
+            is_retryable: is_retryable(e),
+        })?;
+        increment_counter!("exists", "queue" => queue.to_owned());
+        debug!("exists check job");
+        Ok(exists)
+    }
+
     /// Enqueues a new Job to be processed.
     ///
     /// # Errors
@@ -699,7 +794,13 @@ mod tests {
             run_at: None,
             updated_at: None,
         };
-        store.enqueue_batch(&[job]).await?;
+        store.enqueue_batch(&[job.clone()]).await?;
+
+        let exists = store.exists(&queue, &job_id)?;
+        assert_eq!(exists, true);
+
+        let db_job = store.get(&queue, &job_id)?;
+        assert_eq!(db_job, job);
 
         let next_job = store.next(&queue, 1).await?;
         assert!(next_job.is_some());

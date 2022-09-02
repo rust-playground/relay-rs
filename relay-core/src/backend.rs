@@ -4,6 +4,8 @@ use async_trait::async_trait;
 /// Backend is the trait definition for any relay backend implementation.
 #[async_trait]
 pub trait Backend<T> {
+    async fn get(&self, queue: &str, job_id: &str) -> Result<Option<Job<T>>>;
+    async fn exists(&self, queue: &str, job_id: &str) -> Result<bool>;
     async fn enqueue(&self, job: &Job<T>) -> Result<()>;
     async fn enqueue_batch(&self, jobs: &[Job<T>]) -> Result<()>;
     async fn remove(&self, queue: &str, job_id: &str) -> Result<()>;

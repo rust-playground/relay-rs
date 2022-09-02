@@ -1512,7 +1512,7 @@ checksum = "a3f87b73ce11b1619a3c6332f45341e0047173771e8b8b73f87bfeefb7b56244"
 
 [[package]]
 name = "relay"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1530,7 +1530,7 @@ dependencies = [
 
 [[package]]
 name = "relay-backend-postgres"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1547,7 +1547,7 @@ dependencies = [
 
 [[package]]
 name = "relay-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anydate",
  "async-trait",
@@ -1558,7 +1558,7 @@ dependencies = [
 
 [[package]]
 name = "relay-frontend-http"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "actix-web",
  "anyhow",
