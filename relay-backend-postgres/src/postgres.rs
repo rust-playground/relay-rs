@@ -236,15 +236,11 @@ impl Backend<Box<RawValue>> for PgStore {
     async fn remove(&self, queue: &str, job_id: &str) -> Result<()> {
         let run_at = sqlx::query(
             r#"
-                WITH cte_deleted AS (
-                    DELETE FROM jobs 
-                    WHERE 
-                        queue=$1 AND 
-                        id=$2
-                    RETURNING run_at
-                )
-                SELECT run_at
-                FROM cte_deleted
+                DELETE FROM jobs 
+                WHERE 
+                    queue=$1 AND 
+                    id=$2
+                RETURNING run_at
             "#,
         )
         .bind(queue)
