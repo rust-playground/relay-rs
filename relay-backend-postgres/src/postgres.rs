@@ -2,13 +2,15 @@
 use async_trait::async_trait;
 use chrono::{NaiveDateTime, TimeZone, Utc};
 use log::LevelFilter;
-use metrics::counter;
+use metrics::{counter, histogram, increment_counter};
 use relay_core::{Backend, Error, Result};
 use serde_json::value::RawValue;
 use sqlx::postgres::types::PgInterval;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgRow};
 use sqlx::types::Json;
 use sqlx::{ConnectOptions, Error as SQLXError, Executor, PgPool, Row};
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::{str::FromStr, time::Duration};
 use tracing::{debug, warn};
@@ -120,8 +122,8 @@ impl Backend<Box<RawValue>> for PgStore {
             }  )
             .bind(job.max_retries)
             .bind(Json(&job.payload))
-            .bind(&now)
-            .bind(&run_at)
+            .bind(now)
+            .bind(run_at)
             .execute(&self.pool)
             .await
             .map_err(|e| {
@@ -141,6 +143,7 @@ impl Backend<Box<RawValue>> for PgStore {
                     is_retryable: is_retryable(e),
                 }
             })?;
+        increment_counter!("enqueued", "queue" => job.queue.clone());
         debug!("enqueued job");
         Ok(())
     }
@@ -161,6 +164,8 @@ impl Backend<Box<RawValue>> for PgStore {
             message: e.to_string(),
             is_retryable: is_retryable(e),
         })?;
+
+        let mut counts = HashMap::new();
 
         for job in jobs {
             let now = Utc::now();
@@ -194,20 +199,30 @@ impl Backend<Box<RawValue>> for PgStore {
             })
             .bind(job.max_retries)
             .bind(Json(&job.payload))
-            .bind(&now)
-            .bind(&run_at)
+            .bind(now)
+            .bind(run_at)
             .execute(&mut transaction)
             .await
             .map_err(|e| Error::Backend {
                 message: e.to_string(),
                 is_retryable: is_retryable(e),
             })?;
+            match counts.entry(job.queue.clone()) {
+                Entry::Occupied(mut o) => *o.get_mut() += 1,
+                Entry::Vacant(v) => {
+                    v.insert(1);
+                }
+            };
         }
 
         transaction.commit().await.map_err(|e| Error::Backend {
             message: e.to_string(),
             is_retryable: is_retryable(e),
         })?;
+
+        for (queue, count) in counts {
+            counter!("enqueued", count, "queue" => queue);
+        }
         debug!("enqueued batch");
         Ok(())
     }
@@ -219,17 +234,40 @@ impl Backend<Box<RawValue>> for PgStore {
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     #[tracing::instrument(name = "pg_remove", level = "debug", skip_all, fields(job_id=%job_id, queue=%queue))]
     async fn remove(&self, queue: &str, job_id: &str) -> Result<()> {
-        sqlx::query("DELETE FROM jobs WHERE queue=$1 AND id=$2")
-            .bind(queue)
-            .bind(job_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| Error::Backend {
-                message: e.to_string(),
-                is_retryable: is_retryable(e),
-            })?;
+        let run_at = sqlx::query(
+            r#"
+                DELETE FROM jobs 
+                WHERE 
+                    queue=$1 AND 
+                    id=$2
+                RETURNING run_at
+            "#,
+        )
+        .bind(queue)
+        .bind(job_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map(|row| {
+            if let Some(row) = row {
+                let run_at: NaiveDateTime = row.get(0);
+                Some(Utc.from_utc_datetime(&run_at))
+            } else {
+                None
+            }
+        })
+        .map_err(|e| Error::Backend {
+            message: e.to_string(),
+            is_retryable: is_retryable(e),
+        })?;
 
-        debug!("removed job");
+        if let Some(run_at) = run_at {
+            increment_counter!("removed", "queue" => queue.to_owned());
+
+            if let Ok(d) = (Utc::now() - run_at).to_std() {
+                histogram!("duration", d, "queue" => queue.to_owned(), "type" => "remove");
+            }
+            debug!("removed job");
+        }
         Ok(())
     }
 
@@ -274,7 +312,8 @@ impl Backend<Box<RawValue>> for PgStore {
                          j.max_retries,
                          j.data,
                          j.state,
-                         j.run_at
+                         j.run_at,
+                         j.updated_at
             "#,
         )
         .bind(queue)
@@ -288,6 +327,7 @@ impl Backend<Box<RawValue>> for PgStore {
             let state: Option<Json<Box<RawValue>>> = row.get(5);
             let timeout: PgInterval = row.get(2);
             let run_at: NaiveDateTime = row.get(6);
+            let updated_at: NaiveDateTime = row.get(7);
 
             RawJob {
                 id: row.get(0),
@@ -299,6 +339,7 @@ impl Backend<Box<RawValue>> for PgStore {
                     Json(state) => state,
                 }),
                 run_at: Some(Utc.from_utc_datetime(&run_at)),
+                updated_at: Some(Utc.from_utc_datetime(&updated_at)),
             }
         })
         .fetch_all(&self.pool)
@@ -312,6 +353,18 @@ impl Backend<Box<RawValue>> for PgStore {
             debug!("fetched no jobs");
             Ok(None)
         } else {
+            for job in &jobs {
+                // using updated_at because this handles:
+                // - enqueue -> processing
+                // - reschedule -> processing
+                // - reaped -> processing
+                // This is a possible indicator not enough consumers/processors on the calling side
+                // and jobs are backed up processing.
+                if let Ok(d) = (Utc::now() - job.updated_at.unwrap()).to_std() {
+                    histogram!("latency", d, "queue" => job.queue.clone(), "type" => "to_processing");
+                }
+            }
+            counter!("fetched", jobs.len() as u64, "queue" => queue.to_owned());
             debug!(fetched_jobs = jobs.len(), "fetched next job(s)");
             Ok(Some(jobs))
         }
@@ -325,7 +378,7 @@ impl Backend<Box<RawValue>> for PgStore {
     /// Job attempting to be updated cannot be found.
     #[tracing::instrument(name = "pg_update", level = "debug", skip_all, fields(job_id=%job_id, queue=%queue))]
     async fn update(&self, queue: &str, job_id: &str, state: Option<Box<RawValue>>) -> Result<()> {
-        let rows_affected = sqlx::query(
+        let run_at = sqlx::query(
             r#"
                UPDATE jobs
                SET state=$3,
@@ -335,28 +388,41 @@ impl Backend<Box<RawValue>> for PgStore {
                    queue=$1 AND
                    id=$2 AND
                    in_flight=true
+               RETURNING (SELECT run_at FROM jobs WHERE queue=$1 AND id=$2 AND in_flight=true)
             "#,
         )
         .bind(queue)
         .bind(job_id)
         .bind(state.map(|state| Some(Json(state))))
-        .execute(&self.pool)
+        .fetch_optional(&self.pool)
         .await
+        .map(|row| {
+            if let Some(row) = row {
+                let run_at: NaiveDateTime = row.get(0);
+                Some(Utc.from_utc_datetime(&run_at))
+            } else {
+                None
+            }
+        })
         .map_err(|e| Error::Backend {
             message: e.to_string(),
             is_retryable: is_retryable(e),
-        })?
-        .rows_affected();
+        })?;
 
-        if rows_affected == 0 {
+        if let Some(run_at) = run_at {
+            increment_counter!("updated", "queue" => queue.to_owned());
+
+            if let Ok(d) = (Utc::now() - run_at).to_std() {
+                histogram!("duration", d, "queue" => queue.to_owned(), "type" => "running");
+            }
+            debug!("updated job");
+            Ok(())
+        } else {
             debug!("job not found");
             Err(Error::JobNotFound {
                 job_id: job_id.to_string(),
                 queue: queue.to_string(),
             })
-        } else {
-            debug!("updated job");
-            Ok(())
         }
     }
 
@@ -378,7 +444,7 @@ impl Backend<Box<RawValue>> for PgStore {
             now
         };
 
-        let rows_affected = sqlx::query(
+        let run_at = sqlx::query(
             r#"
                 UPDATE jobs
                 SET
@@ -395,6 +461,7 @@ impl Backend<Box<RawValue>> for PgStore {
                     queue=$1 AND
                     id=$2 AND
                     in_flight=true
+                RETURNING (SELECT run_at FROM jobs WHERE queue=$1 AND id=$2 AND in_flight=true)
                 "#,
         )
         .bind(&job.queue)
@@ -407,25 +474,37 @@ impl Backend<Box<RawValue>> for PgStore {
         .bind(job.max_retries)
         .bind(Json(&job.payload))
         .bind(job.state.as_ref().map(|state| Some(Json(state))))
-        .bind(&now)
-        .bind(&run_at)
-        .execute(&self.pool)
+        .bind(now)
+        .bind(run_at)
+        .fetch_optional(&self.pool)
         .await
+        .map(|row| {
+            if let Some(row) = row {
+                let run_at: NaiveDateTime = row.get(0);
+                Some(Utc.from_utc_datetime(&run_at))
+            } else {
+                None
+            }
+        })
         .map_err(|e| Error::Backend {
             message: e.to_string(),
             is_retryable: is_retryable(e),
-        })?
-        .rows_affected();
+        })?;
 
-        if rows_affected == 0 {
+        if let Some(run_at) = run_at {
+            increment_counter!("rescheduled", "queue" => job.queue.clone());
+
+            if let Ok(d) = (Utc::now() - run_at).to_std() {
+                histogram!("duration", d, "queue" => job.queue.clone(), "type" => "rescheduled");
+            }
+            debug!("rescheduled job");
+            Ok(())
+        } else {
             debug!("job not found");
             Err(Error::JobNotFound {
                 job_id: job.id.to_string(),
                 queue: job.queue.to_string(),
             })
-        } else {
-            debug!("rescheduled job");
-            Ok(())
         }
     }
 
@@ -533,7 +612,7 @@ impl Backend<Box<RawValue>> for PgStore {
                 queue = %queue,
                 "deleted records from queue that reached their max retries"
             );
-            counter!("errors", u64::try_from(count).unwrap_or_default(), "queue" => queue);
+            counter!("errors", u64::try_from(count).unwrap_or_default(), "queue" => queue, "type" => "max_retries");
         }
         Ok(())
     }
@@ -591,6 +670,7 @@ mod tests {
             payload: RawValue::from_string("{}".to_string())?,
             state: None,
             run_at: None,
+            updated_at: None,
         };
         store.enqueue(&job).await?;
 
@@ -617,6 +697,7 @@ mod tests {
             payload: RawValue::from_string("{}".to_string())?,
             state: None,
             run_at: None,
+            updated_at: None,
         };
         store.enqueue_batch(&[job]).await?;
 
@@ -643,6 +724,7 @@ mod tests {
             payload: RawValue::from_string("{}".to_string())?,
             state: None,
             run_at: None,
+            updated_at: None,
         };
         store.enqueue(&job).await?;
 
@@ -678,6 +760,7 @@ mod tests {
             payload: RawValue::from_string("{}".to_string())?,
             state: None,
             run_at: None,
+            updated_at: None,
         };
         store.enqueue(&job).await?;
 

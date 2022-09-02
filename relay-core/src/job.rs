@@ -35,4 +35,9 @@ pub struct Job<T> {
     /// the option of being self-perpetuated in combination with the reschedule endpoint.
     #[serde(default, deserialize_with = "anydate_utc_option")]
     pub run_at: Option<DateTime<Utc>>,
+
+    /// With this you can know that last time the Job was updated either through enqueue, reschedule
+    /// or heartbeat.
+    /// This value is for reporting purposes only and will be ignored when enqueuing and rescheduling.
+    pub updated_at: Option<DateTime<Utc>>,
 }

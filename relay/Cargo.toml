@@ -1,6 +1,6 @@
 [package]
 name = "relay"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -15,9 +15,9 @@ metrics-util = "0.14.0"
 metrics = "0.20.1"
 serde_json = { version = "1.0.85", features = ["raw_value"] }
 tracing = "0.1.35"
-relay-core = { version = "0.1", path="../relay-core" }
-relay-frontend-http = { version = "0.1", path = "../relay-frontend-http", optional = true}
-relay-backend-postgres = { version = "0.1", path = "../relay-backend-postgres", optional = true}
+relay-core = { version = "0.2", path="../relay-core" }
+relay-frontend-http = { version = "0.2", path = "../relay-frontend-http", optional = true}
+relay-backend-postgres = { version = "0.2", path = "../relay-backend-postgres", optional = true}
 
 [features]
 default = ["frontend-http","backend-postgres"]
