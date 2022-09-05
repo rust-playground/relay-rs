@@ -98,101 +98,6 @@ impl PgStore {
 
 #[async_trait]
 impl Backend<Box<RawValue>> for PgStore {
-    /// Returns, if available, the Job in the database with the provided queue and id.
-    ///
-    /// This would mainly be used to retried state information from the database about a Job.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if there is any communication issues with the backend Postgres DB.
-    #[tracing::instrument(name = "pg_read", level = "debug", skip_all, fields(job_id=%job_id, queue=%queue))]
-    async fn read(&self, queue: &str, job_id: &str) -> Result<Option<Job<Box<RawValue>>>> {
-        let job = sqlx::query(
-            r#"
-               SELECT id,
-                      queue,
-                      timeout,
-                      max_retries,
-                      data,
-                      state,
-                      run_at,
-                      updated_at
-               FROM jobs
-               WHERE
-                    queue=$1 AND
-                    id=$2
-            "#,
-        )
-        .bind(queue)
-        .bind(job_id)
-        .map(|row: PgRow| {
-            // map the row into a user-defined domain type
-            let payload: Json<Box<RawValue>> = row.get(4);
-            let state: Option<Json<Box<RawValue>>> = row.get(5);
-            let timeout: PgInterval = row.get(2);
-            let run_at: NaiveDateTime = row.get(6);
-            let updated_at: NaiveDateTime = row.get(7);
-
-            RawJob {
-                id: row.get(0),
-                queue: row.get(1),
-                timeout: (timeout.microseconds / 1_000_000) as i32,
-                max_retries: row.get(3),
-                payload: payload.0,
-                state: state.map(|state| match state {
-                    Json(state) => state,
-                }),
-                run_at: Some(Utc.from_utc_datetime(&run_at)),
-                updated_at: Some(Utc.from_utc_datetime(&updated_at)),
-            }
-        })
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| Error::Backend {
-            message: e.to_string(),
-            is_retryable: is_retryable(e),
-        })?;
-        increment_counter!("read", "queue" => queue.to_owned());
-        debug!("read job");
-        Ok(job)
-    }
-
-    /// Checks and returns if a Job exists in the database with the provided queue and id.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if there is any communication issues with the backend Postgres DB.
-    #[tracing::instrument(name = "pg_exists", level = "debug", skip_all, fields(job_id=%job_id, queue=%queue))]
-    async fn exists(&self, queue: &str, job_id: &str) -> Result<bool> {
-        let exists: bool = sqlx::query(
-            r#"
-                    SELECT EXISTS (
-                        SELECT 1 FROM jobs WHERE
-                            queue=$1 AND
-                            id=$2
-                    )
-                "#,
-        )
-        .bind(queue)
-        .bind(job_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map(|row| {
-            if let Some(row) = row {
-                row.get(0)
-            } else {
-                false
-            }
-        })
-        .map_err(|e| Error::Backend {
-            message: e.to_string(),
-            is_retryable: is_retryable(e),
-        })?;
-        increment_counter!("exists", "queue" => queue.to_owned());
-        debug!("exists check job");
-        Ok(exists)
-    }
-
     /// Creates a batch of Jobs to be processed in a single write transaction.
     ///
     /// NOTES: If the number of jobs passed is '1' then those will return a `JobExists` error
@@ -204,8 +109,8 @@ impl Backend<Box<RawValue>> for PgStore {
     /// # Errors
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
-    #[tracing::instrument(name = "pg_create", level = "debug", skip_all, fields(jobs = jobs.len()))]
-    async fn create(&self, jobs: &[RawJob]) -> Result<()> {
+    #[tracing::instrument(name = "pg_enqueue", level = "debug", skip_all, fields(jobs = jobs.len()))]
+    async fn enqueue(&self, jobs: &[RawJob]) -> Result<()> {
         if jobs.len() == 1 {
             let job = jobs.first().unwrap();
             let now = Utc::now();
@@ -246,7 +151,7 @@ impl Backend<Box<RawValue>> for PgStore {
                         is_retryable: is_retryable(e),
                     }
                 })?;
-            increment_counter!("created", "queue" => job.queue.clone());
+            increment_counter!("enqueued", "queue" => job.queue.clone());
         } else {
             let mut transaction = self.pool.begin().await.map_err(|e| Error::Backend {
                 message: e.to_string(),
@@ -309,11 +214,70 @@ impl Backend<Box<RawValue>> for PgStore {
             })?;
 
             for (queue, count) in counts {
-                counter!("created", count, "queue" => queue);
+                counter!("enqueued", count, "queue" => queue);
             }
         }
-        debug!("created jobs");
+        debug!("enqueued jobs");
         Ok(())
+    }
+
+    /// Returns, if available, the Job in the database with the provided queue and id.
+    ///
+    /// This would mainly be used to retried state information from the database about a Job.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if there is any communication issues with the backend Postgres DB.
+    #[tracing::instrument(name = "pg_get", level = "debug", skip_all, fields(job_id=%job_id, queue=%queue))]
+    async fn get(&self, queue: &str, job_id: &str) -> Result<Option<Job<Box<RawValue>>>> {
+        let job = sqlx::query(
+            r#"
+               SELECT id,
+                      queue,
+                      timeout,
+                      max_retries,
+                      data,
+                      state,
+                      run_at,
+                      updated_at
+               FROM jobs
+               WHERE
+                    queue=$1 AND
+                    id=$2
+            "#,
+        )
+        .bind(queue)
+        .bind(job_id)
+        .map(|row: PgRow| {
+            // map the row into a user-defined domain type
+            let payload: Json<Box<RawValue>> = row.get(4);
+            let state: Option<Json<Box<RawValue>>> = row.get(5);
+            let timeout: PgInterval = row.get(2);
+            let run_at: NaiveDateTime = row.get(6);
+            let updated_at: NaiveDateTime = row.get(7);
+
+            RawJob {
+                id: row.get(0),
+                queue: row.get(1),
+                timeout: (timeout.microseconds / 1_000_000) as i32,
+                max_retries: row.get(3),
+                payload: payload.0,
+                state: state.map(|state| match state {
+                    Json(state) => state,
+                }),
+                run_at: Some(Utc.from_utc_datetime(&run_at)),
+                updated_at: Some(Utc.from_utc_datetime(&updated_at)),
+            }
+        })
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| Error::Backend {
+            message: e.to_string(),
+            is_retryable: is_retryable(e),
+        })?;
+        increment_counter!("get", "queue" => queue.to_owned());
+        debug!("got job");
+        Ok(job)
     }
 
     /// Deletes the job from the database.
@@ -358,6 +322,103 @@ impl Backend<Box<RawValue>> for PgStore {
             debug!("deleted job");
         }
         Ok(())
+    }
+
+    /// Updates the existing in-flight job by incrementing it's `updated_at` and option state.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if there is any communication issues with the backend Postgres DB or the
+    /// Job attempting to be updated cannot be found.
+    #[tracing::instrument(name = "pg_heartbeat", level = "debug", skip_all, fields(job_id=%job_id, queue=%queue))]
+    async fn heartbeat(
+        &self,
+        queue: &str,
+        job_id: &str,
+        state: Option<Box<RawValue>>,
+    ) -> Result<()> {
+        let run_at = sqlx::query(
+            r#"
+               UPDATE jobs
+               SET state=$3,
+                   updated_at=NOW(),
+                   expires_at=NOW()+timeout
+               WHERE
+                   queue=$1 AND
+                   id=$2 AND
+                   in_flight=true
+               RETURNING (SELECT run_at FROM jobs WHERE queue=$1 AND id=$2 AND in_flight=true)
+            "#,
+        )
+        .bind(queue)
+        .bind(job_id)
+        .bind(state.map(|state| Some(Json(state))))
+        .fetch_optional(&self.pool)
+        .await
+        .map(|row| {
+            if let Some(row) = row {
+                let run_at: NaiveDateTime = row.get(0);
+                Some(Utc.from_utc_datetime(&run_at))
+            } else {
+                None
+            }
+        })
+        .map_err(|e| Error::Backend {
+            message: e.to_string(),
+            is_retryable: is_retryable(e),
+        })?;
+
+        if let Some(run_at) = run_at {
+            increment_counter!("heartbeat", "queue" => queue.to_owned());
+
+            if let Ok(d) = (Utc::now() - run_at).to_std() {
+                histogram!("duration", d, "queue" => queue.to_owned(), "type" => "running");
+            }
+            debug!("heartbeat job");
+            Ok(())
+        } else {
+            debug!("job not found");
+            Err(Error::JobNotFound {
+                job_id: job_id.to_string(),
+                queue: queue.to_string(),
+            })
+        }
+    }
+
+    /// Checks and returns if a Job exists in the database with the provided queue and id.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if there is any communication issues with the backend Postgres DB.
+    #[tracing::instrument(name = "pg_exists", level = "debug", skip_all, fields(job_id=%job_id, queue=%queue))]
+    async fn exists(&self, queue: &str, job_id: &str) -> Result<bool> {
+        let exists: bool = sqlx::query(
+            r#"
+                    SELECT EXISTS (
+                        SELECT 1 FROM jobs WHERE
+                            queue=$1 AND
+                            id=$2
+                    )
+                "#,
+        )
+        .bind(queue)
+        .bind(job_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map(|row| {
+            if let Some(row) = row {
+                row.get(0)
+            } else {
+                false
+            }
+        })
+        .map_err(|e| Error::Backend {
+            message: e.to_string(),
+            is_retryable: is_retryable(e),
+        })?;
+        increment_counter!("exists", "queue" => queue.to_owned());
+        debug!("exists check job");
+        Ok(exists)
     }
 
     /// Fetches the next available Job(s) to be executed order by `run_at`.
@@ -456,67 +517,6 @@ impl Backend<Box<RawValue>> for PgStore {
             counter!("fetched", jobs.len() as u64, "queue" => queue.to_owned());
             debug!(fetched_jobs = jobs.len(), "fetched next job(s)");
             Ok(Some(jobs))
-        }
-    }
-
-    /// Updates the existing in-flight job by incrementing it's `updated_at` and option state.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if there is any communication issues with the backend Postgres DB or the
-    /// Job attempting to be updated cannot be found.
-    #[tracing::instrument(name = "pg_heartbeat", level = "debug", skip_all, fields(job_id=%job_id, queue=%queue))]
-    async fn heartbeat(
-        &self,
-        queue: &str,
-        job_id: &str,
-        state: Option<Box<RawValue>>,
-    ) -> Result<()> {
-        let run_at = sqlx::query(
-            r#"
-               UPDATE jobs
-               SET state=$3,
-                   updated_at=NOW(),
-                   expires_at=NOW()+timeout
-               WHERE
-                   queue=$1 AND
-                   id=$2 AND
-                   in_flight=true
-               RETURNING (SELECT run_at FROM jobs WHERE queue=$1 AND id=$2 AND in_flight=true)
-            "#,
-        )
-        .bind(queue)
-        .bind(job_id)
-        .bind(state.map(|state| Some(Json(state))))
-        .fetch_optional(&self.pool)
-        .await
-        .map(|row| {
-            if let Some(row) = row {
-                let run_at: NaiveDateTime = row.get(0);
-                Some(Utc.from_utc_datetime(&run_at))
-            } else {
-                None
-            }
-        })
-        .map_err(|e| Error::Backend {
-            message: e.to_string(),
-            is_retryable: is_retryable(e),
-        })?;
-
-        if let Some(run_at) = run_at {
-            increment_counter!("heartbeat", "queue" => queue.to_owned());
-
-            if let Ok(d) = (Utc::now() - run_at).to_std() {
-                histogram!("duration", d, "queue" => queue.to_owned(), "type" => "running");
-            }
-            debug!("heartbeat job");
-            Ok(())
-        } else {
-            debug!("job not found");
-            Err(Error::JobNotFound {
-                job_id: job_id.to_string(),
-                queue: queue.to_string(),
-            })
         }
     }
 

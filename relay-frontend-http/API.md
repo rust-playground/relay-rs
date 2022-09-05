@@ -4,57 +4,11 @@ This outlines the HTTP serve that exposes relays functionality.
 
 ## API
 
-### `POST /enqueue`
+### `POST /v1/queues/jobs`
 
-Enqueues a Job to be processed.
-
-#### Arguments
-In this case the only arguments are part of the Body payload.
-
-| argument      | required | description                                                                                                                                                                            |
-|---------------|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `id`          | true     | The unique Job Id which is also CAN be used to ensure the Job is a singleton within a Queue.                                                                                           |
-| `queue`       | true     | Is used to differentiate different job types that can be picked up by job runners.                                                                                                     |
-| `timeout`     | true     | Denotes the duration, in seconds, after a Job has started processing or since the last heartbeat request occurred before considering the Job failed and being put back into the queue. |
-| `max_retries` | false    | Determines how many times the Job can be retried, due to timeouts, before being considered. Infinite retries are supported by using a negative number eg. -1                           |
-| `payload`     | false    | The raw JSON payload that the job runner will receive.                                                                                                                                 |
-| `run_at`      | false    | Schedule/set a Job to be run only at a specific time in the future.                                                                                                                    |
-
-#### Request Body
-```json
-{
-  "id": "1",
-  "queue": "my-queue",
-  "timeout": 30,
-  "max_retries": 0,
-  "payload": "RAW JSON"
-}
-```
-
-### Response Codes
-
-NOTE: The body of the response will have more detail about the specific error.
-
-| code  | description                                                                 |
-|-------|-----------------------------------------------------------------------------|
-| 202   | Job enqueued and accepted for processing.                                   |
-| 400   | For a bad/ill-formed request.                                               |
-| 409   | An conflicting Job already exists with the provided id and queue.           |
-| 429   | A retryable error occurred. Most likely the backing storage having issues.  |
-| 422   | A permanent error has occurred.                                             |
-| 500   | An unknown error has occurred server side.                                  |
-
-
-
-### `POST /enqueue/batch`
-
-Enqueues multiple `Jobs` to be processed in one call.
-
-**NOTE:**
-That this function will not return an error for conflicts in Job ID, but rather 
-silently drop the record using an `ON CONFLICT DO NOTHING`. If you need to have a
-Conflict error returned it is recommended to use the `enqueue` function for a single
-Job instead.
+Enqueues Job(s) to be processed. If a single Job is sent you can leverage HTTP 409 to know if
+the Job exists and was not created. When more that one Job is posted then conflicts of existing
+Jobs are ignored.
 
 #### Arguments
 In this case the only arguments are part of the Body payload.
@@ -64,7 +18,7 @@ In this case the only arguments are part of the Body payload.
 | `id`          | true     | The unique Job Id which is also CAN be used to ensure the Job is a singleton within a Queue.                                                                                           |
 | `queue`       | true     | Is used to differentiate different job types that can be picked up by job runners.                                                                                                     |
 | `timeout`     | true     | Denotes the duration, in seconds, after a Job has started processing or since the last heartbeat request occurred before considering the Job failed and being put back into the queue. |
-| `max_retries` | false    | Determines how many times the Job can be retried, due to timeouts, before being considered.                                                                                            |
+| `max_retries` | false    | Determines how many times the Job can be retried, due to timeouts, before being considered. Infinite retries are supported by using a negative number eg. -1                           |
 | `payload`     | false    | The raw JSON payload that the job runner will receive.                                                                                                                                 |
 | `run_at`      | false    | Schedule/set a Job to be run only at a specific time in the future.                                                                                                                    |
 
@@ -72,11 +26,11 @@ In this case the only arguments are part of the Body payload.
 ```json
 [
     {
-      "id": "1",
-      "queue": "my-queue",
-      "timeout": 30,
-      "max_retries": 0,
-      "payload": "RAW JSON"
+        "id": "1",
+        "queue": "my-queue",
+        "timeout": 30,
+        "max_retries": 0,
+        "payload": "RAW JSON"
     }
 ]
 ```
@@ -85,25 +39,26 @@ In this case the only arguments are part of the Body payload.
 
 NOTE: The body of the response will have more detail about the specific error.
 
-| code  | description                                                                 |
-|-------|-----------------------------------------------------------------------------|
-| 202   | Job enqueued and accepted for processing.                                   |
-| 400   | For a bad/ill-formed request.                                               |
-| 429   | A retryable error occurred. Most likely the backing storage having issues.  |
-| 422   | A permanent error has occurred.                                             |
-| 500   | An unknown error has occurred server side.                                  |
+| code  | description                                                                                                |
+|-------|------------------------------------------------------------------------------------------------------------|
+| 202   | Job enqueued and accepted for processing.                                                                  |
+| 400   | For a bad/ill-formed request.                                                                              |
+| 409   | An conflicting Job already exists with the provided id and queue. Reminder only if a single Job is posted. |
+| 429   | A retryable error occurred. Most likely the backing storage having issues.                                 |
+| 422   | A permanent error has occurred.                                                                            |
+| 500   | An unknown error has occurred server side.                                                                 |
 
 
 
-### `GET /v1/next`
+### `GET /v1/queues/{queue}/jobs`
 
 Retrieves the next `Job(s)` to be processed based on the provided `queue`.
 
 #### Arguments
-In this case the only arguments are query params.
+In this case the only arguments are path and query params.
 
-| argument | required | description                                                                    |
-|----------|----------|--------------------------------------------------------------------------------|
+|  argument  | required | description                                                                    |
+|------------|----------|--------------------------------------------------------------------------------|
 | `queue`    | true     | Used to pull the next job from the requested queue.                            |
 | `num_jobs` | false    | Specifies how many Jobs to pull to process next in one request. Defaults to 1. |
 
@@ -111,14 +66,16 @@ In this case the only arguments are query params.
 Some fields may not be present such as `state` when none exists.
 ```json
 [
-    {
-      "id": "1",
-      "queue": "my-queue",
-      "timeout": 30,
-      "max_retries": 0,
-      "payload": "RAW JSON",
-      "state": "RAW JSON"
-    }
+  {
+    "id": "1",
+    "queue": "my-queue",
+    "timeout": 30,
+    "max_retries": 0,
+    "payload": "RAW JSON",
+    "state": "RAW JSON",
+    "run_at": "2022-09-05T04:37:23Z",
+    "updated_at": "2022-09-05T04:37:23Z",
+  }
 ]
 ```
 
@@ -134,18 +91,18 @@ NOTE: The body of the response will have more detail about the specific error.
 
 
 
-### `PATCH /v1/heartbeat`
+### `PATCH /v1/queues/{queue}/jobs/{id}`
 
-Updates an in-flight Job incrementing its timestamp and optionally setting some state in case of failure. 
+Updates an in-flight Job incrementing its timestamp and optionally setting some state in case of failure.
 
 #### Arguments
 
-In this case the only arguments are query params.
+In this case the only arguments are path params and JSON body.
 
 | argument | required | description                                                      |
 |----------|----------|------------------------------------------------------------------|
-| `queue`    | true     | The Queue to apply the heartbeat to.                             |
-| `job_id`   | true     | The Job ID to apply the heartbeat to within the supplied Queue.  |
+| `queue`  | true     | The Queue to apply the heartbeat to.                             |
+| `id`     | true     | The Job ID to apply the heartbeat to within the supplied Queue.  |
 
 
 #### Request Body
@@ -165,16 +122,16 @@ NOTE: The body of th response will have more detail about the specific error.
 | 500   | An unknown error has occurred server side.                                 |
 
 
-### `POST /reschedule`
+### `PUT /v1/queues/jobs`
 
-This endpoint should mainly be used for one-time jobs and scheduled jobs that have
-the option of being self-perpetuated in combination with the `run_at` field.
+This endpoint schedules jobs that have the option of being self-perpetuated in combination
+with the `run_at` field.
 
 #### Arguments
 In this case the only arguments are part of the Body payload.
 
-| argument      | required | description                                                                                                                                                                            |
-|---------------|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| argument    | required | description                                                                                                                                                                              |
+|-------------|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `id`          | true     | The unique Job Id which is also CAN be used to ensure the Job is a singleton within a Queue.                                                                                           |
 | `queue`       | true     | Is used to differentiate different job types that can be picked up by job runners.                                                                                                     |
 | `timeout`     | true     | Denotes the duration, in seconds, after a Job has started processing or since the last heartbeat request occurred before considering the Job failed and being put back into the queue. |
@@ -209,7 +166,7 @@ NOTE: The body of the response will have more detail about the specific error.
 
 
 
-### `DELETE /v1/complete`
+### `DELETE /v1/queues/{queues}/jobs/{id}`
 
 Completes a Job by removing it.
 
@@ -217,10 +174,10 @@ Completes a Job by removing it.
 
 In this case the only arguments are query params.
 
-| argument | required | description                          |
-|----------|----------|--------------------------------------|
-| `queue`    | true     | The Queue to remove the `job_id` from. |
-| `job_id`   | true     | The Job ID to remove from the `queue`. |
+| argument | required | description                            |
+|----------|----------|----------------------------------------|
+| `queue`  | true     | The Queue to remove the Job id from.   |
+| `id`     | true     | The Job ID to remove from the `queue`. |
 
 ### Response Codes
 
@@ -235,18 +192,19 @@ NOTE: The body of the response will have more detail about the specific error.
 | 500   | An unknown error has occurred server side.                                  |
 
 
-### `HEAD /v1/exists`
+
+### `HEAD /v1/queues/{queue}/jobs/{id}`
 
 Using HTTP response codes returns if the Job exists.
 
 ### Arguments
 
-In this case the only arguments are query params.
+In this case the only arguments are path params.
 
-| argument | required | description                          |
-|----------|----------|--------------------------------------|
-| `queue`    | true     | The Queue to remove the `job_id` from. |
-| `job_id`   | true     | The Job ID to remove from the `queue`. |
+| argument | required | description                            |
+|----------|----------|----------------------------------------|
+| `queue`  | true     | The Queue to remove the Job id from.   |
+| `id`     | true     | The Job ID to remove from the `queue`. |
 
 ### Response Codes
 
@@ -261,29 +219,29 @@ NOTE: The body of the response will have more detail about the specific error.
 | 500   | An unknown error has occurred server side.                                 |
 
 
-### `GET /get`
+### `GET /v1/queues/{queue}/jobs/{id}`
 
 Fetches the Job from the database if it exists.
 
 #### Arguments
-In this case the only arguments are part of the Body payload.
+In this case the only arguments are path params.
 
 | argument    | required | description                                                                                                                                                                            |
 |-------------|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `id`          | true     | The unique Job Id which is also CAN be used to ensure the Job is a singleton within a Queue.                                                                                           |
-| `queue`       | true     | Is used to differentiate different job types that can be picked up by job runners.                                                                                                     |
+| `queue`     | true     | Is used to differentiate different job types that can be picked up by job runners.                                                                                                     |
+| `id`        | true     | The unique Job Id which is also CAN be used to ensure the Job is a singleton within a Queue.                                                                                           |
 
 #### Request Body
 ```json
 [
-    {
-      "id": "1",
-      "queue": "my-queue",
-      "timeout": 30,
-      "max_retries": 0,
-      "payload": "RAW JSON",
-      ...
-    }
+  {
+    "id": "1",
+    "queue": "my-queue",
+    "timeout": 30,
+    "max_retries": 0,
+    "payload": "RAW JSON",
+    ...
+  }
 ]
 ```
 
@@ -295,6 +253,6 @@ NOTE: The body of the response will have more detail about the specific error.
 |------|---------------------------------------------------------------------------|
 | 200  | Job found and in the response body.                                       |
 | 400  | For a bad/ill-formed request.                                             |
-| 429  | A retryable error occurred. Most likely the backing storage having issues. |
+| 429  | A retryable error occurred. Most likely the backing storage having issues.|
 | 422  | A permanent error has occurred.                                           |
 | 500  | An unknown error has occurred server side.                                |

@@ -17,14 +17,14 @@ struct GetInfo {
 }
 
 #[tracing::instrument(name = "http_get", level = "debug", skip_all)]
-async fn get<BE, T>(data: web::Data<Arc<BE>>, info: web::Query<GetInfo>) -> HttpResponse
+async fn get<BE, T>(data: web::Data<Arc<BE>>, info: web::Path<GetInfo>) -> HttpResponse
 where
     T: Serialize,
     BE: Backend<T>,
 {
     increment_counter!("http_request", "endpoint" => "get", "queue" => info.queue.clone());
 
-    match data.read(&info.queue, &info.id).await {
+    match data.get(&info.queue, &info.id).await {
         Ok(job) => {
             if let Some(job) = job {
                 HttpResponse::build(StatusCode::OK).json(job)
@@ -55,7 +55,7 @@ struct ExistsInfo {
 }
 
 #[tracing::instrument(name = "http_exists", level = "debug", skip_all)]
-async fn exists<BE, T>(data: web::Data<Arc<BE>>, info: web::Query<ExistsInfo>) -> HttpResponse
+async fn exists<BE, T>(data: web::Data<Arc<BE>>, info: web::Path<ExistsInfo>) -> HttpResponse
 where
     BE: Backend<T>,
 {
@@ -85,15 +85,15 @@ where
     }
 }
 
-#[tracing::instrument(name = "http_create", level = "debug", skip_all)]
-async fn create<BE, T>(data: web::Data<Arc<BE>>, jobs: web::Json<Vec<Job<T>>>) -> HttpResponse
+#[tracing::instrument(name = "http_enqueue", level = "debug", skip_all)]
+async fn enqueue<BE, T>(data: web::Data<Arc<BE>>, jobs: web::Json<Vec<Job<T>>>) -> HttpResponse
 where
     BE: Backend<T>,
 {
-    increment_counter!("http_request", "endpoint" => "create");
+    increment_counter!("http_request", "endpoint" => "enqueue");
 
-    if let Err(e) = data.create(&jobs.0).await {
-        increment_counter!("errors", "endpoint" => "create", "type" => e.error_type());
+    if let Err(e) = data.enqueue(&jobs.0).await {
+        increment_counter!("errors", "endpoint" => "enqueue", "type" => e.error_type());
         match e {
             Error::Backend { .. } => {
                 if e.is_retryable() {
@@ -115,8 +115,12 @@ where
 }
 
 #[derive(Deserialize)]
-struct NextInfo {
+struct NextPathInfo {
     queue: String,
+}
+
+#[derive(Deserialize)]
+struct NextQueryInfo {
     #[serde(default = "default_num_jobs")]
     num_jobs: u32,
 }
@@ -126,14 +130,18 @@ const fn default_num_jobs() -> u32 {
 }
 
 #[tracing::instrument(name = "http_next", level = "debug", skip_all)]
-async fn next<BE, T>(data: web::Data<Arc<BE>>, info: web::Query<NextInfo>) -> HttpResponse
+async fn next<BE, T>(
+    data: web::Data<Arc<BE>>,
+    path_info: web::Path<NextPathInfo>,
+    query_info: web::Query<NextQueryInfo>,
+) -> HttpResponse
 where
     T: Serialize,
     BE: Backend<T>,
 {
-    increment_counter!("http_request", "endpoint" => "next", "queue" => info.queue.clone());
+    increment_counter!("http_request", "endpoint" => "next", "queue" => path_info.queue.clone());
 
-    match data.next(&info.queue, info.num_jobs).await {
+    match data.next(&path_info.queue, query_info.num_jobs).await {
         Err(e) => {
             increment_counter!("errors", "endpoint" => "next", "type" => e.error_type(), "queue" => e.queue());
             if let Error::Backend { .. } = e {
@@ -162,7 +170,7 @@ struct HeartbeatInfo {
 #[tracing::instrument(name = "http_heartbeat", level = "debug", skip_all)]
 async fn heartbeat<BE, T>(
     data: web::Data<Arc<BE>>,
-    info: web::Query<HeartbeatInfo>,
+    info: web::Path<HeartbeatInfo>,
     state: Option<web::Json<T>>,
 ) -> HttpResponse
 where
@@ -232,7 +240,7 @@ struct CompleteInfo {
 }
 
 #[tracing::instrument(name = "http_delete", level = "debug", skip_all)]
-async fn delete<BE, T>(data: web::Data<Arc<BE>>, info: web::Query<CompleteInfo>) -> HttpResponse
+async fn delete<BE, T>(data: web::Data<Arc<BE>>, info: web::Path<CompleteInfo>) -> HttpResponse
 where
     BE: Backend<T>,
 {
@@ -286,13 +294,22 @@ impl Server {
             App::new()
                 .app_data(web::Data::new(backend.clone()))
                 .wrap(Logger::new("%a %r %s %Dms"))
-                .route("/v1/jobs", web::post().to(create::<BE, T>))
-                .route("/v1/jobs", web::delete().to(delete::<BE, T>))
-                .route("/v1/jobs", web::head().to(exists::<BE, T>))
-                .route("/v1/jobs", web::get().to(get::<BE, T>))
-                .route("/v1/jobs/next", web::get().to(next::<BE, T>))
-                .route("/v1/jobs/heartbeat", web::patch().to(heartbeat::<BE, T>))
-                .route("/v1/jobs/reschedule", web::post().to(reschedule::<BE, T>))
+                .route("/v1/queues/jobs", web::post().to(enqueue::<BE, T>))
+                .route("/v1/queues/jobs", web::put().to(reschedule::<BE, T>))
+                .route("/v1/queues/{queue}/jobs", web::get().to(next::<BE, T>))
+                .route(
+                    "/v1/queues/{queue}/jobs/{id}",
+                    web::delete().to(delete::<BE, T>),
+                )
+                .route(
+                    "/v1/queues/{queue}/jobs/{id}",
+                    web::head().to(exists::<BE, T>),
+                )
+                .route("/v1/queues/{queue}/jobs/{id}", web::get().to(get::<BE, T>))
+                .route(
+                    "/v1/queues/{queue}/jobs/{id}",
+                    web::patch().to(heartbeat::<BE, T>),
+                )
                 .route("/health", web::get().to(health))
         })
         .bind(addr)?
