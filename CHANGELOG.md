@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2022-09-05
+### Added
+- Added new exists and get HTTP endpoint to be able to check for a Job's existence or fetch it.
+
+### Changed
+- HTTP endpoints to be more sane + RESTful.
+- Metrics name.
+
 ## [0.8.0] - 2022-09-02
 ### Added
 - Added per queue runtime & health metrics.
@@ -74,7 +82,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Future Job support using new `run_at` Job field.
 - Reschedule endpoint allowing the Job Runner to manage a unique/singleton Job rescheduling itself.
 
-[Unreleased]: https://github.com/rust-playground/relay-rs/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/rust-playground/relay-rs/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/rust-playground/relay-rs/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/rust-playground/relay-rs/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/rust-playground/relay-rs/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/rust-playground/relay-rs/compare/v0.6.0...v0.6.1

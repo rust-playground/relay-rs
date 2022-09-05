@@ -1,12 +1,12 @@
 [package]
 name = "relay-frontend-http"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-relay-core = { version = "0.2", path="../relay-core" }
+relay-core = { version = "0.3", path="../relay-core" }
 tracing = "0.1.36"
 actix-web = { version = "4.1.0", default-features = false, features = ["compress-gzip", "rustls"] }
 metrics = "0.20.1"
