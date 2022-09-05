@@ -766,7 +766,7 @@ mod tests {
             run_at: None,
             updated_at: None,
         };
-        store.create(&[job.clone()]).await?;
+        store.enqueue(&[job.clone()]).await?;
 
         let next_job = store.next(&queue, 1).await?;
         assert!(next_job.is_some());
@@ -794,12 +794,12 @@ mod tests {
             run_at: Some(run_at),
             updated_at: None,
         };
-        store.create(&[job.clone()]).await?;
+        store.enqueue(&[job.clone()]).await?;
 
         let exists = store.exists(&queue, &job_id).await?;
         assert!(exists);
 
-        let db_job = store.read(&queue, &job_id).await?;
+        let db_job = store.get(&queue, &job_id).await?;
         assert!(db_job.is_some());
 
         let db_job = db_job.unwrap();
@@ -817,7 +817,7 @@ mod tests {
         assert_eq!(next_job[0].id, job_id);
         store.delete(&queue, &job_id).await?;
 
-        let db_job = store.read(&queue, &job_id).await?;
+        let db_job = store.get(&queue, &job_id).await?;
         assert!(db_job.is_none());
 
         Ok(())
@@ -839,7 +839,7 @@ mod tests {
             run_at: None,
             updated_at: None,
         };
-        store.create(&[job.clone()]).await?;
+        store.enqueue(&[job.clone()]).await?;
 
         let next_job = store.next(&queue, 1).await?;
         assert!(next_job.is_some());
@@ -875,7 +875,7 @@ mod tests {
             run_at: None,
             updated_at: None,
         };
-        store.create(&[job.clone()]).await?;
+        store.enqueue(&[job.clone()]).await?;
 
         let next_job = store.next(&queue, 1).await?;
         assert!(next_job.is_some());
