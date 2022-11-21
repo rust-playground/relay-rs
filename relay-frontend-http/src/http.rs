@@ -178,8 +178,6 @@ where
 {
     increment_counter!("http_request", "endpoint" => "heartbeat", "queue" => info.queue.clone());
 
-    dbg!(state.is_some());
-
     let state = match state {
         None => None,
         Some(state) => Some(state.0),

@@ -10,7 +10,61 @@ use std::future::Future;
 use std::time::Duration;
 use tokio::time::sleep;
 
-pub struct ClientBuilder {}
+pub struct ClientBuilder {
+    url: String,
+    next_backoff: Exponential,
+    retry_backoff: Exponential,
+    max_retries: Option<usize>,
+}
+
+impl ClientBuilder {
+    pub fn new(url: &str) -> Self {
+        let next_backoff = ExponentialBackoffBuilder::default()
+            .interval(Duration::from_millis(200))
+            .jitter(Duration::from_millis(25))
+            .max(Duration::from_secs(1))
+            .build();
+
+        let retry_backoff = ExponentialBackoffBuilder::default()
+            .interval(Duration::from_millis(100))
+            .jitter(Duration::from_millis(25))
+            .max(Duration::from_secs(1))
+            .build();
+
+        Self {
+            url: url.to_string(),
+            next_backoff,
+            retry_backoff,
+            max_retries: None, // no max retries
+        }
+    }
+
+    pub fn next_backoff(mut self, backoff: Exponential) -> Self {
+        self.next_backoff = backoff;
+        self
+    }
+
+    pub fn retry_backoff(mut self, backoff: Exponential) -> Self {
+        self.retry_backoff = backoff;
+        self
+    }
+
+    pub fn max_retries(mut self, max_retries: Option<usize>) -> Self {
+        self.max_retries = max_retries;
+        self
+    }
+
+    pub fn build(self) -> Client {
+        let client = reqwest::Client::new();
+        Client {
+            url: self.url,
+            client,
+            next_backoff: self.next_backoff,
+            retry_backoff: self.retry_backoff,
+            max_retries: self.max_retries,
+        }
+    }
+}
 
 pub struct Client {
     url: String,
@@ -21,37 +75,6 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(
-        url: &str,
-        next_backoff: Option<Exponential>,
-        retry_backoff: Option<Exponential>,
-    ) -> Self {
-        let next_backoff = next_backoff.unwrap_or_else(|| {
-            ExponentialBackoffBuilder::default()
-                .interval(Duration::from_millis(200))
-                .jitter(Duration::from_millis(25))
-                .max(Duration::from_secs(1))
-                .build()
-        });
-
-        let retry_backoff = retry_backoff.unwrap_or_else(|| {
-            ExponentialBackoffBuilder::default()
-                .interval(Duration::from_millis(100))
-                .jitter(Duration::from_millis(25))
-                .max(Duration::from_secs(1))
-                .build()
-        });
-
-        let client = reqwest::Client::new();
-        Self {
-            url: url.to_string(),
-            client,
-            next_backoff,
-            retry_backoff,
-            max_retries: None,
-        }
-    }
-
     pub async fn enqueue<P, S>(&self, job: &Job<P, S>) -> Result<()>
     where
         P: Serialize,
@@ -195,7 +218,7 @@ impl Client {
             let mut req = self.client.patch(&url);
 
             if let Some(state) = &state {
-                req = req.json(state)
+                req = req.json(state);
             }
             let res = req.send().await?;
 
