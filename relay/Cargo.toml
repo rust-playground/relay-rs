@@ -15,9 +15,9 @@ metrics-util = "0.14.0"
 metrics = "0.20.1"
 serde_json = { version = "1.0.87", features = ["raw_value"] }
 tracing = "0.1.37"
-relay-core = { version = "0.3", path="../relay-core" }
-relay-frontend-http = { version = "0.3", path = "../relay-frontend-http", optional = true}
-relay-backend-postgres = { version = "0.3", path = "../relay-backend-postgres", optional = true}
+relay-core = { version = "0.4", path="../relay-core" }
+relay-frontend-http = { version = "0.4", path = "../relay-frontend-http", optional = true}
+relay-backend-postgres = { version = "0.4", path = "../relay-backend-postgres", optional = true}
 
 [features]
 default = ["frontend-http","backend-postgres"]

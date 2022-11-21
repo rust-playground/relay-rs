@@ -106,7 +106,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 #[cfg(feature = "backend-postgres")]
-async fn init_postgres(opts: &Opts) -> anyhow::Result<impl Backend<Box<RawValue>>> {
+async fn init_postgres(opts: &Opts) -> anyhow::Result<impl Backend<Box<RawValue>, Box<RawValue>>> {
     let min_connections = if opts.database_max_connections < 10 {
         1
     } else {

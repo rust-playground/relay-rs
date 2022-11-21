@@ -20,7 +20,7 @@ struct GetInfo {
 async fn get<BE, T>(data: web::Data<Arc<BE>>, info: web::Path<GetInfo>) -> HttpResponse
 where
     T: Serialize,
-    BE: Backend<T>,
+    BE: Backend<T, T>,
 {
     increment_counter!("http_request", "endpoint" => "get", "queue" => info.queue.clone());
 
@@ -57,7 +57,7 @@ struct ExistsInfo {
 #[tracing::instrument(name = "http_exists", level = "debug", skip_all)]
 async fn exists<BE, T>(data: web::Data<Arc<BE>>, info: web::Path<ExistsInfo>) -> HttpResponse
 where
-    BE: Backend<T>,
+    BE: Backend<T, T>,
 {
     increment_counter!("http_request", "endpoint" => "exists", "queue" => info.queue.clone());
 
@@ -86,9 +86,9 @@ where
 }
 
 #[tracing::instrument(name = "http_enqueue", level = "debug", skip_all)]
-async fn enqueue<BE, T>(data: web::Data<Arc<BE>>, jobs: web::Json<Vec<Job<T>>>) -> HttpResponse
+async fn enqueue<BE, T>(data: web::Data<Arc<BE>>, jobs: web::Json<Vec<Job<T, T>>>) -> HttpResponse
 where
-    BE: Backend<T>,
+    BE: Backend<T, T>,
 {
     increment_counter!("http_request", "endpoint" => "enqueue");
 
@@ -137,7 +137,7 @@ async fn next<BE, T>(
 ) -> HttpResponse
 where
     T: Serialize,
-    BE: Backend<T>,
+    BE: Backend<T, T>,
 {
     increment_counter!("http_request", "endpoint" => "next", "queue" => path_info.queue.clone());
 
@@ -174,9 +174,11 @@ async fn heartbeat<BE, T>(
     state: Option<web::Json<T>>,
 ) -> HttpResponse
 where
-    BE: Backend<T>,
+    BE: Backend<T, T>,
 {
     increment_counter!("http_request", "endpoint" => "heartbeat", "queue" => info.queue.clone());
+
+    dbg!(state.is_some());
 
     let state = match state {
         None => None,
@@ -205,9 +207,9 @@ where
 }
 
 #[tracing::instrument(name = "http_reschedule", level = "debug", skip_all)]
-async fn reschedule<BE, T>(data: web::Data<Arc<BE>>, job: web::Json<Job<T>>) -> HttpResponse
+async fn reschedule<BE, T>(data: web::Data<Arc<BE>>, job: web::Json<Job<T, T>>) -> HttpResponse
 where
-    BE: Backend<T>,
+    BE: Backend<T, T>,
 {
     increment_counter!("http_request", "endpoint" => "reschedule", "queue" => job.0.queue.clone());
 
@@ -242,7 +244,7 @@ struct CompleteInfo {
 #[tracing::instrument(name = "http_delete", level = "debug", skip_all)]
 async fn delete<BE, T>(data: web::Data<Arc<BE>>, info: web::Path<CompleteInfo>) -> HttpResponse
 where
-    BE: Backend<T>,
+    BE: Backend<T, T>,
 {
     increment_counter!("http_request", "endpoint" => "delete", "queue" => info.queue.clone());
 
@@ -288,7 +290,7 @@ impl Server {
     pub async fn run<BE, T>(backend: Arc<BE>, addr: &str) -> anyhow::Result<()>
     where
         T: Serialize + DeserializeOwned + Send + Sync + 'static,
-        BE: Backend<T> + Send + Sync + 'static,
+        BE: Backend<T, T> + Send + Sync + 'static,
     {
         HttpServer::new(move || {
             App::new()

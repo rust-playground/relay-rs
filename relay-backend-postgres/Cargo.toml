@@ -1,12 +1,12 @@
 [package]
 name = "relay-backend-postgres"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-relay-core = { version = "0.3", path="../relay-core" }
+relay-core = { version = "0.4", path="../relay-core" }
 sqlx = { version = "0.6.2", features = ["postgres", "chrono","runtime-tokio-rustls", "all-types", "migrate"] }
 log = "0.4.17"
 tracing = "0.1.37"

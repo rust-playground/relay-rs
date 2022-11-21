@@ -16,7 +16,7 @@ use std::{str::FromStr, time::Duration};
 use tracing::{debug, warn};
 
 /// `RawJob` represents a Relay Job for the Postgres backend.
-type RawJob = relay_core::Job<Box<RawValue>>;
+type RawJob = Job<Box<RawValue>, Box<RawValue>>;
 
 /// Postgres backing store
 pub struct PgStore {
@@ -97,7 +97,7 @@ impl PgStore {
 }
 
 #[async_trait]
-impl Backend<Box<RawValue>> for PgStore {
+impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
     /// Creates a batch of Jobs to be processed in a single write transaction.
     ///
     /// NOTES: If the number of jobs passed is '1' then those will return a `JobExists` error
@@ -229,7 +229,7 @@ impl Backend<Box<RawValue>> for PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     #[tracing::instrument(name = "pg_get", level = "debug", skip_all, fields(job_id=%job_id, queue=%queue))]
-    async fn get(&self, queue: &str, job_id: &str) -> Result<Option<Job<Box<RawValue>>>> {
+    async fn get(&self, queue: &str, job_id: &str) -> Result<Option<RawJob>> {
         let job = sqlx::query(
             r#"
                SELECT id,
