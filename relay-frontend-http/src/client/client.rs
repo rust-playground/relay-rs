@@ -196,6 +196,7 @@ impl Client {
                     status_code: Some(StatusCode::NO_CONTENT),
                     is_retryable: true,
                     is_poll: true,
+                    message: "no jobs found for processing".to_string(),
                 }),
                 _ => {
                     let _ = res.error_for_status()?;

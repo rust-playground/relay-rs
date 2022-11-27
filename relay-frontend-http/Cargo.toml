@@ -16,5 +16,6 @@ anyhow = "1.0.66"
 reqwest = { version = "0.11.12", features = ["rustls-tls", "json"] }
 backoff-rs = "0.1.0"
 thiserror = "1.0.37"
-tokio = { version = "1.21.2", default-features = false, features = ["time"] }
+tokio = { version = "1.21.2", default-features = false, features = ["time", "macros"] }
 percent-encoding = "2.2.0"
+async-channel = "1.7.1"

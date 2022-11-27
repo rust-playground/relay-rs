@@ -15,11 +15,12 @@ pub enum Error {
     #[error("Job not found")]
     JobNotFound,
 
-    #[error("error occurred making request, status_code: `{status_code:?}` is_retryable: `{is_retryable}`")]
+    #[error("error occurred making request, status_code: `{status_code:?}` is_retryable: `{is_retryable}` error: {message}")]
     Request {
         status_code: Option<StatusCode>,
         is_retryable: bool,
         is_poll: bool,
+        message: String,
     },
 }
 
@@ -58,11 +59,13 @@ impl From<reqwest::Error> for Error {
                 status_code: sc,
                 is_retryable: true,
                 is_poll: false,
+                message: sc.unwrap().to_string(),
             },
             sc @ _ => Error::Request {
                 status_code: sc,
-                is_retryable: err.is_connect() || err.is_timeout(),
+                is_retryable: err.is_timeout(),
                 is_poll: false,
+                message: err.to_string(),
             },
         }
     }
