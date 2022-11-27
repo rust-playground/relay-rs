@@ -105,6 +105,10 @@ where
             let mut num_jobs = 0;
 
             'outer: loop {
+                if num_jobs == 0 {
+                    tx_sem.send(()).await?;
+                    num_jobs += 1;
+                }
                 while let Ok(_) = tx_sem.try_send(()) {
                     num_jobs += 1;
                 }
