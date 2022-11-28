@@ -77,7 +77,7 @@ async fn main() -> anyhow::Result<()> {
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let reap_be = backend.clone();
     let reaper = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(opts.reap_interval as u64));
+        let mut interval = tokio::time::interval(Duration::from_secs(opts.reap_interval));
         interval.reset();
         tokio::pin!(shutdown_rx);
 
