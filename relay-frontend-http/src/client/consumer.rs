@@ -7,7 +7,8 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio::{select, task};
 
-pub struct ConsumerBuilder<W, P, S> {
+/// A Builder can be used to create a custom `Consumer`.
+pub struct Builder<W, P, S> {
     client: Arc<Client>,
     queue: String,
     worker: Arc<W>,
@@ -16,38 +17,49 @@ pub struct ConsumerBuilder<W, P, S> {
     _state: PhantomData<S>,
 }
 
-impl<W, P, S> ConsumerBuilder<W, P, S>
+impl<W, P, S> Builder<W, P, S>
 where
     W: Worker<Client, P, S>,
 {
+    /// Initializes a new Builder with sane defaults to create a custom `Consumer`
     pub fn new(client: Arc<Client>, queue: &str, worker: W) -> Self {
         Self {
             client,
             queue: queue.to_string(),
             worker: Arc::new(worker),
             max_workers: 10,
-            _payload: Default::default(),
-            _state: Default::default(),
+            _payload: PhantomData::default(),
+            _state: PhantomData::default(),
         }
     }
 
+    /// Sets the maximum number of backend workers, which also indicates the maximum in-flight
+    /// `Job`s.
+    ///
+    /// # Default
+    ///
+    /// `10` workers.
+    #[must_use]
     pub fn max_workers(mut self, max_workers: usize) -> Self {
         self.max_workers = max_workers;
         self
     }
 
+    /// Creates a new `Consumer` using the Builders configuration.
+    #[must_use]
     pub fn build(self) -> Consumer<W, P, S> {
         Consumer {
             client: self.client,
             queue: self.queue,
             worker: self.worker,
             max_workers: self.max_workers,
-            _payload: Default::default(),
-            _state: Default::default(),
+            _payload: PhantomData::default(),
+            _state: PhantomData::default(),
         }
     }
 }
 
+/// Relay HTTP Consumer that internally handles polling and running multiple `Job`s.
 pub struct Consumer<W, P, S> {
     client: Arc<Client>,
     queue: String,
@@ -63,14 +75,17 @@ where
     P: DeserializeOwned + Send + Sync + 'static,
     S: DeserializeOwned + Send + Sync + 'static,
 {
+    /// Starts the Relay HTTP Consumer
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` on an unrecoverable network or shutdown issue.
     pub async fn start(
         &self,
         cancel: impl Future<Output = ()> + Send + 'static,
     ) -> Result<(), anyhow::Error> {
-        let (tx, rx): (Sender<Job<P, S>>, Receiver<Job<P, S>>) =
-            async_channel::bounded(self.max_workers);
-
-        let (tx_sem, rx_sem): (Sender<()>, Receiver<()>) = async_channel::bounded(self.max_workers);
+        let (tx, rx) = async_channel::bounded(self.max_workers);
+        let (tx_sem, rx_sem) = async_channel::bounded(self.max_workers);
 
         let handles = (0..self.max_workers)
             .map(|_| {
@@ -109,7 +124,7 @@ where
                     tx_sem.send(()).await?;
                     num_jobs += 1;
                 }
-                while let Ok(_) = tx_sem.try_send(()) {
+                while tx_sem.try_send(()).is_ok() {
                     num_jobs += 1;
                 }
 
@@ -123,11 +138,8 @@ where
                 for job in jobs {
                     tx.send(job).await?;
                 }
-                num_jobs = num_jobs - l;
+                num_jobs -= l;
             }
-            // automatically gets dropped?
-            // drop(tx);
-            // drop(tx_sem);
             Ok(())
         }
     }

@@ -61,7 +61,7 @@ impl From<reqwest::Error> for Error {
                 is_poll: false,
                 message: sc.unwrap().to_string(),
             },
-            sc @ _ => Error::Request {
+            sc => Error::Request {
                 status_code: sc,
                 is_retryable: err.is_timeout(),
                 is_poll: false,
