@@ -6,8 +6,14 @@ WORKDIR /src
 COPY . .
 RUN --mount=type=cache,target=target \
     mkdir -p /out \
-    && (cargo build -p relay --features metrics-prometheus --release) \
-    && mv target/release/relay /out/relay
+
+RUN cargo build -p relay --features metrics-prometheus --release
+RUN ls
+RUN mv target/release/relay /out/relay
+#RUN --mount=type=cache,target=target \
+#    mkdir -p /out \
+#    && (cargo build -p relay --features metrics-prometheus --release) \
+#    && mv target/release/relay /out/relay
 
 FROM debian:buster-slim
 RUN apt-get update && apt-get install -y ca-certificates libc6 && rm -rf /var/lib/apt/lists/*
