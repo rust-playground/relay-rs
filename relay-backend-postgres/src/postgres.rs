@@ -783,7 +783,9 @@ mod tests {
         let store = PgStore::default(&db_url).await?;
         let job_id = Uuid::new_v4().to_string();
         let queue = Uuid::new_v4().to_string();
-        let run_at = Utc.timestamp_millis(Utc::now().timestamp_millis());
+        let run_at = Utc
+            .timestamp_millis_opt(Utc::now().timestamp_millis())
+            .unwrap();
         let job = RawJob {
             id: job_id.clone(),
             queue: queue.clone(),
