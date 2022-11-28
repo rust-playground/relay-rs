@@ -10,12 +10,12 @@ relay-core = { version = "0.4", path="../relay-core" }
 tracing = "0.1.37"
 actix-web = { version = "4.2.1", default-features = false, features = ["compress-gzip", "rustls"] }
 metrics = "0.20.1"
-serde = { version = "1.0.147", features = ["derive"] }
-serde_json = { version = "1.0.87", features = ["raw_value"] }
+serde = { version = "1.0.148", features = ["derive"] }
+serde_json = { version = "1.0.89", features = ["raw_value"] }
 anyhow = "1.0.66"
-reqwest = { version = "0.11.12", features = ["rustls-tls", "json"] }
+reqwest = { version = "0.11.13", features = ["rustls-tls", "json"] }
 backoff-rs = "0.1.0"
 thiserror = "1.0.37"
-tokio = { version = "1.21.2", default-features = false, features = ["time", "macros"] }
+tokio = { version = "1.22.0", default-features = false, features = ["time", "macros"] }
 percent-encoding = "2.2.0"
 async-channel = "1.7.1"

@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 thiserror = "1.0.37"
-serde = { version = "1.0.147", features = ["derive"] }
+serde = { version = "1.0.148", features = ["derive"] }
 anydate = { version = "0.3.0", features = ["serde"] }
-chrono = { version = "0.4.22", features = ["serde"] }
+chrono = { version = "0.4.23", features = ["serde"] }
 async-trait = "0.1.58"
