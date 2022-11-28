@@ -5,7 +5,7 @@ WORKDIR /src
 
 COPY . .
 RUN --mount=type=cache,target=target \
-    apt-get update && sudo apt-get install -y pkg-config \
+    apt-get update && apt-get install -y pkg-config \
     && mkdir -p /out
 
 RUN cargo build -p relay --features metrics-prometheus --release
