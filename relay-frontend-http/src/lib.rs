@@ -257,7 +257,8 @@
 //! | 422  | A permanent error has occurred.                                           |
 //! | 500  | An unknown error has occurred server side.                                |
 
+/// Client to interact with the Relay server.
 pub mod client;
-mod http;
 
-pub use http::Server;
+/// HTTP Relay server backend.
+pub mod server;

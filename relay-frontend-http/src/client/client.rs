@@ -80,7 +80,7 @@ impl Builder {
         self
     }
 
-    /// Sets a custom HTTP [Client](request::Client) for use.
+    /// Sets a custom HTTP [Client](https://docs.rs/reqwest/latest/reqwest/struct.Client.html#) for use.
     #[must_use]
     pub fn client(mut self, client: reqwest::Client) -> Self {
         self.client = client;

@@ -95,7 +95,8 @@ async fn main() -> anyhow::Result<()> {
     });
 
     #[cfg(feature = "frontend-http")]
-    relay_frontend_http::Server::run(backend, &format!("0.0.0.0:{}", opts.http_port)).await?;
+    relay_frontend_http::server::Server::run(backend, &format!("0.0.0.0:{}", opts.http_port))
+        .await?;
 
     drop(shutdown_tx);
 
