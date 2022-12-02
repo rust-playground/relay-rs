@@ -341,7 +341,7 @@ impl Server {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::client::{Builder as ClientBuilder, Client, ConsumerBuilder};
+    use crate::client::{Builder as ClientBuilder, Client};
     use actix_http::HttpService;
     use actix_http_test::{test_server, TestServer};
     use actix_service::map_config;
@@ -349,7 +349,6 @@ mod tests {
     use actix_web::dev::AppConfig;
     use chrono::Utc;
     use relay_backend_postgres::PgStore;
-    use relay_core::Worker;
     use uuid::Uuid;
 
     async fn init_server() -> anyhow::Result<(TestServer, Arc<Client>)> {
@@ -374,7 +373,9 @@ mod tests {
     #[tokio::test]
     async fn test_oneshot() -> anyhow::Result<()> {
         let (_srv, client) = init_server().await?;
-        let now = Utc::now();
+        let now = Utc
+            .timestamp_millis_opt(Utc::now().timestamp_millis())
+            .unwrap();
         let job = Job {
             id: Uuid::new_v4().to_string(),
             queue: Uuid::new_v4().to_string(),
@@ -417,7 +418,9 @@ mod tests {
     #[tokio::test]
     async fn test_reschedule() -> anyhow::Result<()> {
         let (_srv, client) = init_server().await?;
-        let now = Utc::now();
+        let now = Utc
+            .timestamp_millis_opt(Utc::now().timestamp_millis())
+            .unwrap();
         let mut job = Job {
             id: Uuid::new_v4().to_string(),
             queue: Uuid::new_v4().to_string(),
