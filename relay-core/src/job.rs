@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Job defines all information needed to process a job.
-#[derive(Default, Debug, Serialize, Deserialize, Clone)]
+#[derive(Default, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct Job<P, S> {
     /// The unique Job ID which is also CAN be used to ensure the Job is a singleton.
     pub id: String,

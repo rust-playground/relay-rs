@@ -369,7 +369,7 @@ impl Client {
     {
         let url = format!("{}/v1/queues/jobs", self.url);
         self.with_retry(|| async {
-            let res = self.client.put(&url).json(&[job]).send().await?;
+            let res = self.client.put(&url).json(job).send().await?;
             let status_code = res.status();
 
             if status_code == StatusCode::ACCEPTED {

@@ -19,3 +19,12 @@ thiserror = "1.0.37"
 tokio = { version = "1.22.0", default-features = false, features = ["time", "macros"] }
 percent-encoding = "2.2.0"
 async-channel = "1.7.1"
+
+
+[dev-dependencies]
+actix-http-test = "3.0.0"
+actix-http = "3.2.2"
+actix-service = "2.0.2"
+relay-backend-postgres = { version = "*", path="../relay-backend-postgres"}
+uuid = { version = "1.2.2", features = ["v4"] }
+chrono = "0.4.23"
