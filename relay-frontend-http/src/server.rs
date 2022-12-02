@@ -316,7 +316,7 @@ impl Server {
         BE: Backend<T, T> + Send + Sync + 'static,
     {
         App::new()
-            .app_data(web::Data::new(backend.clone()))
+            .app_data(web::Data::new(backend))
             .wrap(Logger::new("%a %r %s %Dms"))
             .route("/v1/queues/jobs", web::post().to(enqueue::<BE, T>))
             .route("/v1/queues/jobs", web::put().to(reschedule::<BE, T>))
@@ -347,6 +347,7 @@ mod tests {
     use actix_service::map_config;
     use actix_service::ServiceFactoryExt;
     use actix_web::dev::AppConfig;
+    use chrono::TimeZone;
     use chrono::Utc;
     use relay_backend_postgres::PgStore;
     use uuid::Uuid;
