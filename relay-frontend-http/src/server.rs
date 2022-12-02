@@ -384,7 +384,7 @@ mod tests {
             max_retries: -1,
             payload: (),
             state: None,
-            run_at: Some(now.clone()),
+            run_at: Some(now),
             updated_at: None,
         };
 
@@ -429,7 +429,7 @@ mod tests {
             max_retries: -1,
             payload: (),
             state: None,
-            run_at: Some(now.clone()),
+            run_at: Some(now),
             updated_at: None,
         };
 
