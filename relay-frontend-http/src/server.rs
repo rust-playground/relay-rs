@@ -439,7 +439,10 @@ mod tests {
         assert_eq!(jobs.len(), 1);
         job = jobs.pop().unwrap();
 
-        job.run_at = Some(Utc::now());
+        job.run_at = Some(
+            Utc.timestamp_millis_opt(Utc::now().timestamp_millis())
+                .unwrap(),
+        );
         client.reschedule(&job).await?;
 
         let mut j = client.get::<(), i32>(&job.queue, &job.id).await?;
