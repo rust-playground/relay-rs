@@ -18,7 +18,7 @@ backoff-rs = "0.1.0"
 thiserror = "1.0.37"
 tokio = { version = "1.22.0", default-features = false, features = ["time", "macros"] }
 percent-encoding = "2.2.0"
-async-channel = "1.7.1"
+async-channel = "1.8.0"
 
 
 [dev-dependencies]

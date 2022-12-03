@@ -13,7 +13,7 @@ tracing = "0.1.37"
 metrics = "0.20.1"
 chrono = "0.4.23"
 serde_json = { version = "1.0.89", features = ["raw_value"] }
-async-trait = "0.1.58"
+async-trait = "0.1.59"
 
 [dev-dependencies]
 uuid = { version = "1.2.2", features = ["v4"] }
