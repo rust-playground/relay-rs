@@ -347,7 +347,7 @@ mod tests {
     use actix_service::map_config;
     use actix_service::ServiceFactoryExt;
     use actix_web::dev::AppConfig;
-    use chrono::TimeZone;
+    use chrono::DurationRound;
     use chrono::Utc;
     use relay_backend_postgres::PgStore;
     use uuid::Uuid;
@@ -374,8 +374,8 @@ mod tests {
     #[tokio::test]
     async fn test_oneshot() -> anyhow::Result<()> {
         let (_srv, client) = init_server().await?;
-        let now = Utc
-            .timestamp_millis_opt(Utc::now().timestamp_millis())
+        let now = Utc::now()
+            .duration_trunc(chrono::Duration::milliseconds(1))
             .unwrap();
         let job = Job {
             id: Uuid::new_v4().to_string(),
@@ -419,8 +419,8 @@ mod tests {
     #[tokio::test]
     async fn test_reschedule() -> anyhow::Result<()> {
         let (_srv, client) = init_server().await?;
-        let now = Utc
-            .timestamp_millis_opt(Utc::now().timestamp_millis())
+        let now = Utc::now()
+            .duration_trunc(chrono::Duration::milliseconds(1))
             .unwrap();
         let mut job = Job {
             id: Uuid::new_v4().to_string(),
@@ -440,7 +440,8 @@ mod tests {
         job = jobs.pop().unwrap();
 
         job.run_at = Some(
-            Utc.timestamp_millis_opt(Utc::now().timestamp_millis())
+            Utc::now()
+                .duration_trunc(chrono::Duration::milliseconds(1))
                 .unwrap(),
         );
         client.reschedule(&job).await?;
