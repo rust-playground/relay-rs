@@ -3,8 +3,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Job defines all information needed to process a job.
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Job<T> {
+#[derive(Default, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct Job<P, S> {
     /// The unique Job ID which is also CAN be used to ensure the Job is a singleton.
     pub id: String,
 
@@ -22,13 +22,13 @@ pub struct Job<T> {
     pub max_retries: i32,
 
     /// The raw JSON payload that the job runner will receive.
-    pub payload: T,
+    pub payload: P,
 
     /// The raw JSON payload that the job runner will receive.
     ///
     /// This state will be ignored when enqueueing a Job and can only be set via a Heartbeat or
     /// Reschedule request.
-    pub state: Option<T>,
+    pub state: Option<S>,
 
     /// With this you can optionally schedule/set a Job to be run only at a specific time in the
     /// future. This option should mainly be used for one-time jobs and scheduled jobs that have

@@ -1,21 +1,21 @@
 [package]
 name = "relay-backend-postgres"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-relay-core = { version = "0.3", path="../relay-core" }
-sqlx = { version = "0.6.1", features = ["postgres", "chrono","runtime-tokio-rustls", "all-types", "migrate"] }
+relay-core = { version = "0.4", path="../relay-core" }
+sqlx = { version = "0.6.2", features = ["postgres", "chrono","runtime-tokio-rustls", "all-types", "migrate"] }
 log = "0.4.17"
-tracing = "0.1.36"
+tracing = "0.1.37"
 metrics = "0.20.1"
-chrono = "0.4.22"
-serde_json = { version = "1.0.85", features = ["raw_value"] }
-async-trait = "0.1.57"
+chrono = "0.4.23"
+serde_json = { version = "1.0.89", features = ["raw_value"] }
+async-trait = "0.1.59"
 
 [dev-dependencies]
-uuid = { version = "1.1.2", features = ["v4"] }
-anyhow = "1.0.62"
-tokio = { version = "1.20.1", features = ["rt-multi-thread", "net", "time","macros"] }
+uuid = { version = "1.2.2", features = ["v4"] }
+anyhow = "1.0.66"
+tokio = { version = "1.22.0", features = ["rt-multi-thread", "net", "time","macros"] }

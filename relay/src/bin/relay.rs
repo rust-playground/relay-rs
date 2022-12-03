@@ -77,7 +77,7 @@ async fn main() -> anyhow::Result<()> {
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let reap_be = backend.clone();
     let reaper = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(opts.reap_interval as u64));
+        let mut interval = tokio::time::interval(Duration::from_secs(opts.reap_interval));
         interval.reset();
         tokio::pin!(shutdown_rx);
 
@@ -95,7 +95,8 @@ async fn main() -> anyhow::Result<()> {
     });
 
     #[cfg(feature = "frontend-http")]
-    relay_frontend_http::Server::run(backend, &format!("0.0.0.0:{}", opts.http_port)).await?;
+    relay_frontend_http::server::Server::run(backend, &format!("0.0.0.0:{}", opts.http_port))
+        .await?;
 
     drop(shutdown_tx);
 
@@ -106,7 +107,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 #[cfg(feature = "backend-postgres")]
-async fn init_postgres(opts: &Opts) -> anyhow::Result<impl Backend<Box<RawValue>>> {
+async fn init_postgres(opts: &Opts) -> anyhow::Result<impl Backend<Box<RawValue>, Box<RawValue>>> {
     let min_connections = if opts.database_max_connections < 10 {
         1
     } else {
