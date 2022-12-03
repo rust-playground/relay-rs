@@ -9,7 +9,7 @@ See details for each crate.
 |---------------------------------------------------------------|-----------------------------------------------|
 | [relay](./relay/README.md)                                    | No nonsense horizontally scalable Job Runner. |
 | [relay-core](./relay-core/README.md)                          | Contains all core shared code and logic.      |
-| [relay-frontend-http](./relay-frontend-http/README.md)        | HTTP frontend for Relay.                      |
+| [relay-frontend-http](./relay-frontend-http/README.md)        | HTTP frontend and client for Relay.           |
 | [relay-backend-prostgres](./relay-backend-postgres/README.md) | Postgres backend for Relay.                   |
 
 #### License
