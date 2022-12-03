@@ -8,14 +8,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.10.0] - 2022-10-29
 ### Added
-- Added new exists and get HTTP endpoint to be able to check for a Job's existence or fetch it.
-
-## [0.9.0] - 2022-09-05
-### Fixed
-- Generic params for Job struct to two separate as intended.
-- CI build because of openssl and pkg-config issues.
-
-### Added
 - HTTP Client.
 - HTTP Consumer abstraction.
 - Worker trait to be used by HTTP Consumer and future frontend consumers.
@@ -24,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Updated dependencies to latest versions.
 - Updated CI build file dependencies.
+
+### Fixed
+- Generic params for Job struct to two separate as intended.
+- CI build because of openssl and pkg-config issues.
+
+## [0.9.0] - 2022-09-05
+### Added
+- Added new exists and get HTTP endpoint to be able to check for a Job's existence or fetch it.
 
 ### Changed
 - HTTP endpoints to be more sane + RESTful.
