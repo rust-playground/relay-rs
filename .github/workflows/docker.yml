@@ -46,6 +46,11 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha
+          labels: |
+            maintainer=deankarn
+            org.opencontainers.image.title=relay-rs
+            org.opencontainers.image.description=This contains a no nonsense, horizontally scalable, ordered job runner backed by Postgres.
+            org.opencontainers.image.licenses: Apache-2.0 OR MIT
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v3
