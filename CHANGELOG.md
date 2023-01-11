@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Workspace QOL improvements to use top level Cargo.toml.
+- Updated dependencies.
+- Updated README to add Rust HTTP Client link.
 
 ## [0.10.0] - 2022-10-29
 ### Added
