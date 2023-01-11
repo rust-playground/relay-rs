@@ -1,30 +1,31 @@
 [package]
 name = "relay-frontend-http"
-version = "0.4.0"
-edition = "2021"
+version = "0.5.0"
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-relay-core = { version = "0.4", path="../relay-core" }
-tracing = "0.1.37"
 actix-web = { version = "4.2.1", default-features = false, features = ["compress-gzip", "rustls"] }
-metrics = "0.20.1"
-serde = { version = "1.0.148", features = ["derive"] }
-serde_json = { version = "1.0.89", features = ["raw_value"] }
-anyhow = "1.0.66"
-reqwest = { version = "0.11.13", features = ["rustls-tls", "json"] }
-backoff-rs = "0.1.0"
-thiserror = "1.0.37"
-tokio = { version = "1.22.0", default-features = false, features = ["time", "macros"] }
-percent-encoding = "2.2.0"
-async-channel = "1.8.0"
-
+relay-core.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["time", "macros"] }
+serde_json = { workspace = true, features = ["raw_value"] }
+tracing.workspace = true
+metrics.workspace = true
+serde = { workspace = true, features = ["derive"] }
+reqwest = { workspace = true, features = ["rustls-tls", "json"] }
+backoff-rs.workspace = true
+percent-encoding.workspace = true
+async-channel.workspace = true
 
 [dev-dependencies]
 actix-http-test = "3.0.0"
 actix-http = "3.2.2"
 actix-service = "2.0.2"
 relay-backend-postgres = { version = "*", path="../relay-backend-postgres"}
-uuid = { version = "1.2.2", features = ["v4"] }
-chrono = "0.4.23"
+uuid = { workspace = true, features = ["v4"] }
+chrono.workspace = true

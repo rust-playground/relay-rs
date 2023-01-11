@@ -26,9 +26,10 @@ For details about the API see [here](../relay-frontend-http/API.md).
 #### Clients
 Here is a list of existing clients.
 
-| Language | Description                 |
-|----------|-----------------------------|
+| Language                                                 | Description                 |
+|----------------------------------------------------------|-----------------------------|
 | [Go](https://github.com/go-playground/relay-client-go)   | Go low & high level client. |
+| [Rust](https://github.com/rust-playground/relay-rs/blob/main/relay-frontend-http/src/client/client.rs) | Rust client and consumer.   |
 
 
 #### License
