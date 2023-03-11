@@ -34,7 +34,7 @@ pub struct Opts {
     /// Maximum allowed database connections
     #[cfg(feature = "backend-postgres")]
     #[clap(long, default_value = "10", env = "DATABASE_MAX_CONNECTIONS")]
-    pub database_max_connections: u32,
+    pub database_max_connections: usize,
 
     /// This time interval, in seconds, between runs checking for retries and failed jobs.
     #[clap(long, default_value = "5", env = "REAP_INTERVAL")]
@@ -108,15 +108,8 @@ async fn main() -> anyhow::Result<()> {
 
 #[cfg(feature = "backend-postgres")]
 async fn init_postgres(opts: &Opts) -> anyhow::Result<impl Backend<Box<RawValue>, Box<RawValue>>> {
-    let min_connections = if opts.database_max_connections < 10 {
-        1
-    } else {
-        10
-    };
-    Ok(relay_backend_postgres::PgStore::new(
-        &opts.database_url,
-        min_connections,
-        opts.database_max_connections,
+    Ok(
+        relay_backend_postgres::PgStore::new(&opts.database_url, opts.database_max_connections)
+            .await?,
     )
-    .await?)
 }

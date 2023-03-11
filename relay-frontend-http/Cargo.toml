@@ -8,7 +8,7 @@ description.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix-web = { version = "4.2.1", default-features = false, features = ["compress-gzip", "rustls"] }
+actix-web = { version = "4.3.1", default-features = false, features = ["compress-gzip", "rustls"] }
 relay-core.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
@@ -23,8 +23,8 @@ percent-encoding.workspace = true
 async-channel.workspace = true
 
 [dev-dependencies]
-actix-http-test = "3.0.0"
-actix-http = "3.2.2"
+actix-http-test = "3.1.0"
+actix-http = "3.3.1"
 actix-service = "2.0.2"
 relay-backend-postgres = { version = "*", path="../relay-backend-postgres"}
 uuid = { workspace = true, features = ["v4"] }

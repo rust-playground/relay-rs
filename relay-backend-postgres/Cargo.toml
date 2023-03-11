@@ -9,15 +9,18 @@ description.workspace = true
 
 [dependencies]
 relay-core.workspace = true
-sqlx = { version = "0.6.2", features = ["postgres", "chrono","runtime-tokio-rustls", "all-types", "migrate"] }
 log.workspace = true
 tracing.workspace = true
 metrics.workspace = true
 chrono.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 async-trait.workspace = true
+tokio-postgres = { version = "0.7.7", features = ["with-chrono-0_4", "with-serde_json-1", "with-uuid-1"] }
+deadpool-postgres = "0.10.5"
+pg_interval = "0.4.2"
+anyhow.workspace = true
+tokio-postgres-migration = { version ="0.1.0", git="https://github.com/rust-playground/tokio-postgres-migration" }
 
 [dev-dependencies]
 uuid = { workspace = true, features = ["v4"] }
-anyhow.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "time","macros"] }
