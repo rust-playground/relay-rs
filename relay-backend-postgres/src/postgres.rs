@@ -543,9 +543,9 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                 is_retryable: is_retryable(e),
             })?;
 
-        let limit = match i32::try_from(num_jobs) {
+        let limit = match i64::try_from(num_jobs) {
             Ok(n) => n,
-            Err(_) => i32::MAX,
+            Err(_) => i64::MAX,
         };
         let params: Vec<&(dyn ToSql + Sync)> = vec![&queue, &limit];
         let stream = client
