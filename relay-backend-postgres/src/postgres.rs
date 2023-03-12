@@ -607,76 +607,82 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     #[tracing::instrument(name = "pg_reschedule", level = "debug", skip_all, fields(job_id=%job.id, queue=%job.queue))]
     async fn reschedule(&self, job: &RawJob) -> Result<()> {
-        unimplemented!()
-        // let now = Utc::now();
-        // let run_at = if let Some(run_at) = job.run_at {
-        //     run_at
-        // } else {
-        //     now
-        // };
-        //
-        // let run_at = sqlx::query(
-        //     r#"
-        //         UPDATE jobs
-        //         SET
-        //             timeout = $3,
-        //             max_retries = $4,
-        //             retries_remaining = $4,
-        //             data = $5,
-        //             state = $6,
-        //             updated_at = $7,
-        //             created_at = $7,
-        //             run_at = $8,
-        //             in_flight = false
-        //         WHERE
-        //             queue=$1 AND
-        //             id=$2 AND
-        //             in_flight=true
-        //         RETURNING (SELECT run_at FROM jobs WHERE queue=$1 AND id=$2 AND in_flight=true)
-        //         "#,
-        // )
-        // .bind(&job.queue)
-        // .bind(&job.id)
-        // .bind(PgInterval {
-        //     months: 0,
-        //     days: 0,
-        //     microseconds: i64::from(job.timeout) * 1_000_000,
-        // })
-        // .bind(job.max_retries)
-        // .bind(Json(&job.payload))
-        // .bind(job.state.as_ref().map(|state| Some(Json(state))))
-        // .bind(now)
-        // .bind(run_at)
-        // .fetch_optional(&self.pool)
-        // .await
-        // .map(|row| {
-        //     if let Some(row) = row {
-        //         let run_at: NaiveDateTime = row.get(0);
-        //         Some(Utc.from_utc_datetime(&run_at))
-        //     } else {
-        //         None
-        //     }
-        // })
-        // .map_err(|e| Error::Backend {
-        //     message: e.to_string(),
-        //     is_retryable: is_retryable(e),
-        // })?;
-        //
-        // if let Some(run_at) = run_at {
-        //     increment_counter!("rescheduled", "queue" => job.queue.clone());
-        //
-        //     if let Ok(d) = (Utc::now() - run_at).to_std() {
-        //         histogram!("duration", d, "queue" => job.queue.clone(), "type" => "rescheduled");
-        //     }
-        //     debug!("rescheduled job");
-        //     Ok(())
-        // } else {
-        //     debug!("job not found");
-        //     Err(Error::JobNotFound {
-        //         job_id: job.id.to_string(),
-        //         queue: job.queue.to_string(),
-        //     })
-        // }
+        let now = Utc::now().naive_utc();
+        let run_at = if let Some(run_at) = job.run_at {
+            run_at.naive_utc()
+        } else {
+            now
+        };
+
+        let client = self.pool.get().await.map_err(|e| Error::Backend {
+            message: e.to_string(),
+            is_retryable: is_retryable_pool(e),
+        })?;
+
+        let stmt = client
+            .prepare_cached(
+                r#"
+                UPDATE jobs
+                SET
+                    timeout = $3,
+                    max_retries = $4,
+                    retries_remaining = $4,
+                    data = $5,
+                    state = $6,
+                    updated_at = $7,
+                    created_at = $7,
+                    run_at = $8,
+                    in_flight = false
+                WHERE
+                    queue=$1 AND
+                    id=$2 AND
+                    in_flight=true
+                RETURNING (SELECT run_at FROM jobs WHERE queue=$1 AND id=$2 AND in_flight=true)
+                "#,
+            )
+            .await
+            .map_err(|e| Error::Backend {
+                message: e.to_string(),
+                is_retryable: is_retryable(e),
+            })?;
+
+        let row = client
+            .query_opt(
+                &stmt,
+                &[
+                    &job.queue,
+                    &job.id,
+                    &Interval::from_duration(chrono::Duration::seconds(i64::from(job.timeout))),
+                    &job.max_retries,
+                    &Json(&job.payload),
+                    &job.state.as_ref().map(|state| Some(Json(state))),
+                    &now,
+                    &run_at,
+                ],
+            )
+            .await
+            .map_err(|e| Error::Backend {
+                message: e.to_string(),
+                is_retryable: is_retryable(e),
+            })?;
+
+        if let Some(row) = row {
+            let run_at = Utc.from_utc_datetime(&row.get(0));
+
+            increment_counter!("rescheduled", "queue" => job.queue.clone());
+
+            if let Ok(d) = (Utc::now() - run_at).to_std() {
+                histogram!("duration", d, "queue" => job.queue.clone(), "type" => "rescheduled");
+            }
+            debug!("rescheduled job");
+            Ok(())
+        } else {
+            debug!("job not found");
+            Err(Error::JobNotFound {
+                job_id: job.id.to_string(),
+                queue: job.queue.to_string(),
+            })
+        }
     }
 
     /// Reset records to be retries and deletes those that have reached their max.
