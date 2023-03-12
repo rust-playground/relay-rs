@@ -1703,7 +1703,6 @@ dependencies = [
  "async-trait",
  "chrono",
  "deadpool-postgres",
- "log",
  "metrics",
  "pg_interval",
  "relay-core",

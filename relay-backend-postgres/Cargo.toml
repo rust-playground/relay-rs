@@ -9,7 +9,6 @@ description.workspace = true
 
 [dependencies]
 relay-core.workspace = true
-log.workspace = true
 tracing.workspace = true
 metrics.workspace = true
 chrono.workspace = true

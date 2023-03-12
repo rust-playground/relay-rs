@@ -1,11 +1,10 @@
 #![allow(clippy::cast_possible_truncation)]
 use async_trait::async_trait;
-use chrono::{NaiveDateTime, TimeZone, Utc};
+use chrono::{TimeZone, Utc};
 use deadpool_postgres::{
     ClientWrapper, GenericClient, Hook, HookError, HookErrorCause, Manager, ManagerConfig, Pool,
     PoolError, RecyclingMethod,
 };
-use log::LevelFilter;
 use metrics::{counter, histogram, increment_counter};
 use pg_interval::Interval;
 use relay_core::{Backend, Error, Job, Result};
