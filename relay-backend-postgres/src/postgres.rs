@@ -17,7 +17,7 @@ use std::io::ErrorKind;
 use std::{str::FromStr, time::Duration};
 use tokio_postgres::error::SqlState;
 use tokio_postgres::types::{Json, ToSql};
-use tokio_postgres::{Config as PostgresConfig, NoTls};
+use tokio_postgres::{Config as PostgresConfig, NoTls, Row};
 use tokio_postgres_migration::Migration;
 use tokio_stream::{Stream, StreamExt};
 use tracing::{debug, warn};
@@ -282,55 +282,51 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     #[tracing::instrument(name = "pg_get", level = "debug", skip_all, fields(job_id=%job_id, queue=%queue))]
     async fn get(&self, queue: &str, job_id: &str) -> Result<Option<RawJob>> {
-        unimplemented!()
-        // let job = sqlx::query(
-        //     r#"
-        //        SELECT id,
-        //               queue,
-        //               timeout,
-        //               max_retries,
-        //               data,
-        //               state,
-        //               run_at,
-        //               updated_at
-        //        FROM jobs
-        //        WHERE
-        //             queue=$1 AND
-        //             id=$2
-        //     "#,
-        // )
-        // .bind(queue)
-        // .bind(job_id)
-        // .map(|row: PgRow| {
-        //     // map the row into a user-defined domain type
-        //     let payload: Json<Box<RawValue>> = row.get(4);
-        //     let state: Option<Json<Box<RawValue>>> = row.get(5);
-        //     let timeout: PgInterval = row.get(2);
-        //     let run_at: NaiveDateTime = row.get(6);
-        //     let updated_at: NaiveDateTime = row.get(7);
-        //
-        //     RawJob {
-        //         id: row.get(0),
-        //         queue: row.get(1),
-        //         timeout: (timeout.microseconds / 1_000_000) as i32,
-        //         max_retries: row.get(3),
-        //         payload: payload.0,
-        //         state: state.map(|state| match state {
-        //             Json(state) => state,
-        //         }),
-        //         run_at: Some(Utc.from_utc_datetime(&run_at)),
-        //         updated_at: Some(Utc.from_utc_datetime(&updated_at)),
-        //     }
-        // })
-        // .fetch_optional(&self.pool)
-        // .await
-        // .map_err(|e| Error::Backend {
-        //     message: e.to_string(),
-        //     is_retryable: is_retryable(e),
-        // })?;
-        // increment_counter!("get", "queue" => queue.to_owned());
-        // debug!("got job");
-        // Ok(job)
+        let client = self.pool.get().await.map_err(|e| Error::Backend {
+            message: e.to_string(),
+            is_retryable: is_retryable_pool(e),
+        })?;
+
+        let stmt = client
+            .prepare_cached(
+                r#"
+               SELECT id,
+                      queue,
+                      timeout,
+                      max_retries,
+                      data,
+                      state,
+                      run_at,
+                      updated_at
+               FROM jobs
+               WHERE
+                    queue=$1 AND
+                    id=$2
+            "#,
+            )
+            .await
+            .map_err(|e| Error::Backend {
+                message: e.to_string(),
+                is_retryable: is_retryable(e),
+            })?;
+
+        let row = client
+            .query_opt(&stmt, &[&queue, &job_id])
+            .await
+            .map_err(|e| Error::Backend {
+                message: e.to_string(),
+                is_retryable: is_retryable(e),
+            })?;
+
+        let job = if let Some(row) = row {
+            Some(row_to_job(row))
+        } else {
+            None
+        };
+
+        increment_counter!("get", "queue" => queue.to_owned());
+        debug!("got job");
+        Ok(job)
     }
 
     /// Deletes the job from the database.
@@ -455,34 +451,39 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     #[tracing::instrument(name = "pg_exists", level = "debug", skip_all, fields(job_id=%job_id, queue=%queue))]
     async fn exists(&self, queue: &str, job_id: &str) -> Result<bool> {
-        unimplemented!()
-        // let exists: bool = sqlx::query(
-        //     r#"
-        //             SELECT EXISTS (
-        //                 SELECT 1 FROM jobs WHERE
-        //                     queue=$1 AND
-        //                     id=$2
-        //             )
-        //         "#,
-        // )
-        // .bind(queue)
-        // .bind(job_id)
-        // .fetch_optional(&self.pool)
-        // .await
-        // .map(|row| {
-        //     if let Some(row) = row {
-        //         row.get(0)
-        //     } else {
-        //         false
-        //     }
-        // })
-        // .map_err(|e| Error::Backend {
-        //     message: e.to_string(),
-        //     is_retryable: is_retryable(e),
-        // })?;
-        // increment_counter!("exists", "queue" => queue.to_owned());
-        // debug!("exists check job");
-        // Ok(exists)
+        let client = self.pool.get().await.map_err(|e| Error::Backend {
+            message: e.to_string(),
+            is_retryable: is_retryable_pool(e),
+        })?;
+
+        let stmt = client
+            .prepare_cached(
+                r#"
+                    SELECT EXISTS (
+                        SELECT 1 FROM jobs WHERE
+                            queue=$1 AND
+                            id=$2
+                    )
+                "#,
+            )
+            .await
+            .map_err(|e| Error::Backend {
+                message: e.to_string(),
+                is_retryable: is_retryable(e),
+            })?;
+
+        let exists: bool = client
+            .query_one(&stmt, &[&queue, &job_id])
+            .await
+            .map_err(|e| Error::Backend {
+                message: e.to_string(),
+                is_retryable: is_retryable(e),
+            })?
+            .get(0);
+
+        increment_counter!("exists", "queue" => queue.to_owned());
+        debug!("exists check job");
+        Ok(exists)
     }
 
     /// Fetches the next available Job(s) to be executed order by `run_at`.
@@ -492,97 +493,107 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     #[tracing::instrument(name = "pg_next", level = "debug", skip_all, fields(num_jobs=num_jobs, queue=%queue))]
     async fn next(&self, queue: &str, num_jobs: u32) -> Result<Option<Vec<RawJob>>> {
-        unimplemented!()
-        // // MUST USE CTE WITH `FOR UPDATE SKIP LOCKED LIMIT` otherwise the Postgres Query Planner
-        // // CAN optimize the query which will cause MORE updates than the LIMIT specifies within
-        // // a nested loop.
-        // // See here for details:
-        // // https://github.com/feikesteenbergen/demos/blob/19522f66ffb6eb358fe2d532d9bdeae38d4e2a0b/bugs/update_from_correlated.adoc
-        // let jobs = sqlx::query(
-        //     r#"
-        //        WITH subquery AS (
-        //            SELECT
-        //                 id,
-        //                 queue
-        //            FROM jobs
-        //            WHERE
-        //                 queue=$1 AND
-        //                 in_flight=false AND
-        //                 run_at <= NOW()
-        //            ORDER BY run_at ASC
-        //            FOR UPDATE SKIP LOCKED
-        //            LIMIT $2
-        //        )
-        //        UPDATE jobs j
-        //        SET in_flight=true,
-        //            updated_at=NOW(),
-        //            expires_at=NOW()+timeout
-        //        FROM subquery
-        //        WHERE
-        //            j.queue=subquery.queue AND
-        //            j.id=subquery.id
-        //        RETURNING j.id,
-        //                  j.queue,
-        //                  j.timeout,
-        //                  j.max_retries,
-        //                  j.data,
-        //                  j.state,
-        //                  j.run_at,
-        //                  j.updated_at
-        //     "#,
-        // )
-        // .bind(queue)
-        // .bind(match i32::try_from(num_jobs) {
-        //     Ok(n) => n,
-        //     Err(_) => i32::MAX,
-        // })
-        // .map(|row: PgRow| {
-        //     // map the row into a user-defined domain type
-        //     let payload: Json<Box<RawValue>> = row.get(4);
-        //     let state: Option<Json<Box<RawValue>>> = row.get(5);
-        //     let timeout: PgInterval = row.get(2);
-        //     let run_at: NaiveDateTime = row.get(6);
-        //     let updated_at: NaiveDateTime = row.get(7);
-        //
-        //     RawJob {
-        //         id: row.get(0),
-        //         queue: row.get(1),
-        //         timeout: (timeout.microseconds / 1_000_000) as i32,
-        //         max_retries: row.get(3),
-        //         payload: payload.0,
-        //         state: state.map(|state| match state {
-        //             Json(state) => state,
-        //         }),
-        //         run_at: Some(Utc.from_utc_datetime(&run_at)),
-        //         updated_at: Some(Utc.from_utc_datetime(&updated_at)),
-        //     }
-        // })
-        // .fetch_all(&self.pool)
-        // .await
-        // .map_err(|e| Error::Backend {
-        //     message: e.to_string(),
-        //     is_retryable: is_retryable(e),
-        // })?;
-        //
-        // if jobs.is_empty() {
-        //     debug!("fetched no jobs");
-        //     Ok(None)
-        // } else {
-        //     for job in &jobs {
-        //         // using updated_at because this handles:
-        //         // - enqueue -> processing
-        //         // - reschedule -> processing
-        //         // - reaped -> processing
-        //         // This is a possible indicator not enough consumers/processors on the calling side
-        //         // and jobs are backed up processing.
-        //         if let Ok(d) = (Utc::now() - job.updated_at.unwrap()).to_std() {
-        //             histogram!("latency", d, "queue" => job.queue.clone(), "type" => "to_processing");
-        //         }
-        //     }
-        //     counter!("fetched", jobs.len() as u64, "queue" => queue.to_owned());
-        //     debug!(fetched_jobs = jobs.len(), "fetched next job(s)");
-        //     Ok(Some(jobs))
-        // }
+        let client = self.pool.get().await.map_err(|e| Error::Backend {
+            message: e.to_string(),
+            is_retryable: is_retryable_pool(e),
+        })?;
+
+        // MUST USE CTE WITH `FOR UPDATE SKIP LOCKED LIMIT` otherwise the Postgres Query Planner
+        // CAN optimize the query which will cause MORE updates than the LIMIT specifies within
+        // a nested loop.
+        // See here for details:
+        // https://github.com/feikesteenbergen/demos/blob/19522f66ffb6eb358fe2d532d9bdeae38d4e2a0b/bugs/update_from_correlated.adoc
+        let stmt = client
+            .prepare_cached(
+                r#"
+               WITH subquery AS (
+                   SELECT
+                        id,
+                        queue
+                   FROM jobs
+                   WHERE
+                        queue=$1 AND
+                        in_flight=false AND
+                        run_at <= NOW()
+                   ORDER BY run_at ASC
+                   FOR UPDATE SKIP LOCKED
+                   LIMIT $2
+               )
+               UPDATE jobs j
+               SET in_flight=true,
+                   updated_at=NOW(),
+                   expires_at=NOW()+timeout
+               FROM subquery
+               WHERE
+                   j.queue=subquery.queue AND
+                   j.id=subquery.id
+               RETURNING j.id,
+                         j.queue,
+                         j.timeout,
+                         j.max_retries,
+                         j.data,
+                         j.state,
+                         j.run_at,
+                         j.updated_at
+            "#,
+            )
+            .await
+            .map_err(|e| Error::Backend {
+                message: e.to_string(),
+                is_retryable: is_retryable(e),
+            })?;
+
+        let limit = match i32::try_from(num_jobs) {
+            Ok(n) => n,
+            Err(_) => i32::MAX,
+        };
+        let params: Vec<&(dyn ToSql + Sync)> = vec![&queue, &limit];
+        let stream = client
+            .query_raw(&stmt, params)
+            .await
+            .map_err(|e| Error::Backend {
+                message: e.to_string(),
+                is_retryable: is_retryable(e),
+            })?;
+
+        tokio::pin!(stream);
+
+        // on purpose NOT using num_jobs as the capacity to avoid the potential attack vector of
+        // someone exhausting all memory by sending a large number even if there aren't that many
+        // records in the database.
+        let mut jobs = if let Some(size) = stream.size_hint().1 {
+            Vec::with_capacity(size)
+        } else {
+            Vec::new()
+        };
+
+        while let Some(row) = stream.next().await {
+            let row = row.map_err(|e| Error::Backend {
+                message: e.to_string(),
+                is_retryable: is_retryable(e),
+            })?;
+            jobs.push(row_to_job(row));
+        }
+
+        if jobs.is_empty() {
+            debug!("fetched no jobs");
+            Ok(None)
+        } else {
+            for job in &jobs {
+                // using updated_at because this handles:
+                // - enqueue -> processing
+                // - reschedule -> processing
+                // - reaped -> processing
+                // This is a possible indicator not enough consumers/processors on the calling side
+                // and jobs are backed up processing.
+                if let Ok(d) = (Utc::now() - job.updated_at.unwrap()).to_std() {
+                    histogram!("latency", d, "queue" => job.queue.clone(), "type" => "to_processing");
+                }
+            }
+            counter!("fetched", jobs.len() as u64, "queue" => queue.to_owned());
+            debug!(fetched_jobs = jobs.len(), "fetched next job(s)");
+            Ok(Some(jobs))
+        }
     }
 
     /// Reschedules the an existing in-flight Job to be run again with the provided new information.
@@ -881,23 +892,23 @@ fn is_retryable_pool(e: PoolError) -> bool {
     }
 }
 
-// impl From<PoolError> for Error {
-//     fn from(e: PoolError) -> Self {
-//         Error::Postgres {
-//             message: e.to_string(),
-//             is_retryable: is_retryable_pool(e),
-//         }
-//     }
-// }
-//
-// impl From<tokio_postgres::Error> for Error {
-//     fn from(e: tokio_postgres::Error) -> Self {
-//         Error::Postgres {
-//             message: e.to_string(),
-//             is_retryable: is_retryable(e),
-//         }
-//     }
-// }
+#[inline]
+fn row_to_job(row: Row) -> RawJob {
+    RawJob {
+        id: row.get(0),
+        queue: row.get(1),
+        timeout: interval_seconds(row.get::<usize, Interval>(2)),
+        max_retries: row.get(3),
+        payload: row.get::<usize, Json<Box<RawValue>>>(4).0,
+        state: row
+            .get::<usize, Option<Json<Box<RawValue>>>>(5)
+            .map(|state| match state {
+                Json(state) => state,
+            }),
+        run_at: Some(Utc.from_utc_datetime(&row.get(6))),
+        updated_at: Some(Utc.from_utc_datetime(&row.get(7))),
+    }
+}
 
 fn interval_seconds(interval: Interval) -> i32 {
     let month_secs = interval.months * 30 * 24 * 60 * 60;
