@@ -340,42 +340,44 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     #[tracing::instrument(name = "pg_delete", level = "debug", skip_all, fields(job_id=%job_id, queue=%queue))]
     async fn delete(&self, queue: &str, job_id: &str) -> Result<()> {
-        unimplemented!()
-        // let run_at = sqlx::query(
-        //     r#"
-        //         DELETE FROM jobs
-        //         WHERE
-        //             queue=$1 AND
-        //             id=$2
-        //         RETURNING run_at
-        //     "#,
-        // )
-        // .bind(queue)
-        // .bind(job_id)
-        // .fetch_optional(&self.pool)
-        // .await
-        // .map(|row| {
-        //     if let Some(row) = row {
-        //         let run_at: NaiveDateTime = row.get(0);
-        //         Some(Utc.from_utc_datetime(&run_at))
-        //     } else {
-        //         None
-        //     }
-        // })
-        // .map_err(|e| Error::Backend {
-        //     message: e.to_string(),
-        //     is_retryable: is_retryable(e),
-        // })?;
-        //
-        // if let Some(run_at) = run_at {
-        //     increment_counter!("deleted", "queue" => queue.to_owned());
-        //
-        //     if let Ok(d) = (Utc::now() - run_at).to_std() {
-        //         histogram!("duration", d, "queue" => queue.to_owned(), "type" => "deleted");
-        //     }
-        //     debug!("deleted job");
-        // }
-        // Ok(())
+        let client = self.pool.get().await.map_err(|e| Error::Backend {
+            message: e.to_string(),
+            is_retryable: is_retryable_pool(e),
+        })?;
+        let stmt = client
+            .prepare_cached(
+                r#"
+                DELETE FROM jobs
+                WHERE
+                    queue=$1 AND
+                    id=$2
+                RETURNING run_at
+            "#,
+            )
+            .await
+            .map_err(|e| Error::Backend {
+                message: e.to_string(),
+                is_retryable: is_retryable(e),
+            })?;
+        let row = client
+            .query_opt(&stmt, &[&queue, &job_id])
+            .await
+            .map_err(|e| Error::Backend {
+                message: e.to_string(),
+                is_retryable: is_retryable(e),
+            })?;
+
+        if let Some(row) = row {
+            let run_at = Utc.from_utc_datetime(&row.get(0));
+
+            increment_counter!("deleted", "queue" => queue.to_owned());
+
+            if let Ok(d) = (Utc::now() - run_at).to_std() {
+                histogram!("duration", d, "queue" => queue.to_owned(), "type" => "deleted");
+            }
+            debug!("deleted job");
+        }
+        Ok(())
     }
 
     /// Updates the existing in-flight job by incrementing it's `updated_at` and option state.
