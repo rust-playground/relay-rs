@@ -1711,6 +1711,7 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "tokio-postgres-migration",
+ "tokio-stream",
  "tracing",
  "uuid",
 ]
@@ -2271,6 +2272,17 @@ dependencies = [
  "rustls",
  "tokio",
  "webpki",
+]
+
+[[package]]
+name = "tokio-stream"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8fb52b74f05dbf495a8fba459fdc331812b96aa086d9eb78101fa0d4569c3313"
+dependencies = [
+ "futures-core",
+ "pin-project-lite",
+ "tokio",
 ]
 
 [[package]]
