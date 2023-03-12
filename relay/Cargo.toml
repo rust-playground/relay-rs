@@ -20,10 +20,11 @@ metrics-util.workspace = true
 metrics.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 tracing.workspace = true
+tracing-appender = "0.2.2"
 
 
 [features]
-default = ["frontend-http","backend-postgres"]
+default = ["frontend-http", "backend-postgres"]
 metrics-prometheus = ["metrics-exporter-prometheus"]
 frontend-http = ["relay-frontend-http"]
 backend-postgres = ["relay-backend-postgres"]

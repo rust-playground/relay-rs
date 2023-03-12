@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tracing::{error, info};
+use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Parser)]
 #[clap(version = env!("CARGO_PKG_VERSION"), author = env!("CARGO_PKG_AUTHORS"), about = env!("CARGO_PKG_DESCRIPTION"))]
@@ -53,7 +54,11 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // install global collector configured based on RUST_LOG env var.
-    tracing_subscriber::fmt::init();
+    let (non_blocking, _guard) = tracing_appender::non_blocking(std::io::stdout());
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_writer(non_blocking)
+        .init();
 
     let opts: Opts = Opts::parse();
 
