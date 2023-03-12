@@ -393,53 +393,59 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
         job_id: &str,
         state: Option<Box<RawValue>>,
     ) -> Result<()> {
-        unimplemented!()
-        // let run_at = sqlx::query(
-        //     r#"
-        //        UPDATE jobs
-        //        SET state=$3,
-        //            updated_at=NOW(),
-        //            expires_at=NOW()+timeout
-        //        WHERE
-        //            queue=$1 AND
-        //            id=$2 AND
-        //            in_flight=true
-        //        RETURNING (SELECT run_at FROM jobs WHERE queue=$1 AND id=$2 AND in_flight=true)
-        //     "#,
-        // )
-        // .bind(queue)
-        // .bind(job_id)
-        // .bind(state.map(|state| Some(Json(state))))
-        // .fetch_optional(&self.pool)
-        // .await
-        // .map(|row| {
-        //     if let Some(row) = row {
-        //         let run_at: NaiveDateTime = row.get(0);
-        //         Some(Utc.from_utc_datetime(&run_at))
-        //     } else {
-        //         None
-        //     }
-        // })
-        // .map_err(|e| Error::Backend {
-        //     message: e.to_string(),
-        //     is_retryable: is_retryable(e),
-        // })?;
-        //
-        // if let Some(run_at) = run_at {
-        //     increment_counter!("heartbeat", "queue" => queue.to_owned());
-        //
-        //     if let Ok(d) = (Utc::now() - run_at).to_std() {
-        //         histogram!("duration", d, "queue" => queue.to_owned(), "type" => "running");
-        //     }
-        //     debug!("heartbeat job");
-        //     Ok(())
-        // } else {
-        //     debug!("job not found");
-        //     Err(Error::JobNotFound {
-        //         job_id: job_id.to_string(),
-        //         queue: queue.to_string(),
-        //     })
-        // }
+        let client = self.pool.get().await.map_err(|e| Error::Backend {
+            message: e.to_string(),
+            is_retryable: is_retryable_pool(e),
+        })?;
+
+        let stmt = client
+            .prepare_cached(
+                r#"
+               UPDATE jobs
+               SET state=$3,
+                   updated_at=NOW(),
+                   expires_at=NOW()+timeout
+               WHERE
+                   queue=$1 AND
+                   id=$2 AND
+                   in_flight=true
+               RETURNING (SELECT run_at FROM jobs WHERE queue=$1 AND id=$2 AND in_flight=true)
+            "#,
+            )
+            .await
+            .map_err(|e| Error::Backend {
+                message: e.to_string(),
+                is_retryable: is_retryable(e),
+            })?;
+
+        let row = client
+            .query_opt(
+                &stmt,
+                &[&queue, &job_id, &state.map(|state| Some(Json(state)))],
+            )
+            .await
+            .map_err(|e| Error::Backend {
+                message: e.to_string(),
+                is_retryable: is_retryable(e),
+            })?;
+
+        if let Some(row) = row {
+            let run_at = Utc.from_utc_datetime(&row.get(0));
+
+            increment_counter!("heartbeat", "queue" => queue.to_owned());
+
+            if let Ok(d) = (Utc::now() - run_at).to_std() {
+                histogram!("duration", d, "queue" => queue.to_owned(), "type" => "running");
+            }
+            debug!("heartbeat job");
+            Ok(())
+        } else {
+            debug!("job not found");
+            Err(Error::JobNotFound {
+                job_id: job_id.to_string(),
+                queue: queue.to_string(),
+            })
+        }
     }
 
     /// Checks and returns if a Job exists in the database with the provided queue and id.
