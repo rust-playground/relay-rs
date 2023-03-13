@@ -8,11 +8,10 @@ description.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix-web = { version = "4.3.1", default-features = false, features = ["compress-gzip", "rustls"] }
 relay-core.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["time", "macros"] }
+tokio = { workspace = true, features = ["time", "macros","signal"] }
 serde_json = { workspace = true, features = ["raw_value"] }
 tracing.workspace = true
 metrics.workspace = true
@@ -21,11 +20,13 @@ reqwest = { workspace = true, features = ["rustls-tls", "json"] }
 backoff-rs.workspace = true
 percent-encoding.workspace = true
 async-channel.workspace = true
+axum = { version = "0.6.10", default-features = false, features = ["http1", "http2", "json","matched-path","original-uri","query","tokio","tower-log"] }
+tower-http = { version = "0.4.0", features = ["trace"] }
+uuid.workspace = true
+
 
 [dev-dependencies]
-actix-http-test = "3.1.0"
-actix-http = "3.3.1"
-actix-service = "2.0.2"
+portpicker = "0.1.1"
 relay-backend-postgres = { version = "*", path="../relay-backend-postgres"}
 uuid = { workspace = true, features = ["v4"] }
 chrono.workspace = true
