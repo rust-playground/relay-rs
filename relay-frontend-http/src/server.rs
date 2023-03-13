@@ -249,6 +249,7 @@ where
     }
 }
 
+#[allow(clippy::unused_async)]
 async fn health() {}
 
 /// Tokio signal handler that will wait for a user to press CTRL+C.
@@ -324,7 +325,7 @@ impl Server {
                     })
                     .on_response(
                         |response: &Response<BoxBody>, latency: Duration, _span: &Span| {
-                            info!("{} {:?}", response.status().as_u16(), latency,)
+                            info!("{} {:?}", response.status().as_u16(), latency);
                         },
                     ),
             )

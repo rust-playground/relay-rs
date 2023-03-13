@@ -113,8 +113,5 @@ async fn main() -> anyhow::Result<()> {
 
 #[cfg(feature = "backend-postgres")]
 async fn init_postgres(opts: &Opts) -> anyhow::Result<impl Backend<Box<RawValue>, Box<RawValue>>> {
-    Ok(
-        relay_backend_postgres::PgStore::new(&opts.database_url, opts.database_max_connections)
-            .await?,
-    )
+    relay_backend_postgres::PgStore::new(&opts.database_url, opts.database_max_connections).await
 }

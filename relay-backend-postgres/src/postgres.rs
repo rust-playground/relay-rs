@@ -96,7 +96,7 @@ impl PgStore {
         let mut client = pool.get().await?;
 
         let migration = Migration::new("_relay_rs_migrations".to_string());
-        migration.up(&mut **client, &MIGRATIONS_UP).await.unwrap();
+        migration.up(&mut client, &MIGRATIONS_UP).await?;
 
         client
             .execute(
@@ -317,11 +317,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                 is_retryable: is_retryable(e),
             })?;
 
-        let job = if let Some(row) = row {
-            Some(row_to_job(row))
-        } else {
-            None
-        };
+        let job = row.as_ref().map(row_to_job);
 
         increment_counter!("get", "queue" => queue.to_owned());
         debug!("got job");
@@ -571,7 +567,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                 message: e.to_string(),
                 is_retryable: is_retryable(e),
             })?;
-            jobs.push(row_to_job(row));
+            jobs.push(row_to_job(&row));
         }
 
         if jobs.is_empty() {
@@ -898,7 +894,7 @@ fn is_retryable_pool(e: PoolError) -> bool {
 }
 
 #[inline]
-fn row_to_job(row: Row) -> RawJob {
+fn row_to_job(row: &Row) -> RawJob {
     RawJob {
         id: row.get(0),
         queue: row.get(1),
