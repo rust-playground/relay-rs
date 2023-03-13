@@ -1033,15 +1033,8 @@ mod tests {
         assert_eq!(next_job[0].id, job.id);
 
         store.delete(&job.queue, &job.id).await?;
-        Ok(())
-    }
 
-    #[tokio::test]
-    async fn test_reschedule_future() -> anyhow::Result<()> {
-        let db_url = std::env::var("DATABASE_URL")?;
-        let store = PgStore::default(&db_url).await?;
-        let job_id = Uuid::new_v4().to_string();
-        let queue = Uuid::new_v4().to_string();
+        // test rescheduling in the future
         let mut job = RawJob {
             id: job_id.clone(),
             queue: queue.clone(),
