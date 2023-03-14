@@ -107,7 +107,7 @@ async fn main() -> anyhow::Result<()> {
 
     reaper.await?;
     info!("Reaper shutdown");
-
+    info!("Application gracefully shutdown");
     Ok(())
 }
 

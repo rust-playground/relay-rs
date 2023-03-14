@@ -7,6 +7,7 @@ use deadpool_postgres::{
 };
 use metrics::{counter, histogram, increment_counter};
 use pg_interval::Interval;
+use refinery::{Migration, Runner};
 use relay_core::{Backend, Error, Job, Result};
 use serde_json::value::RawValue;
 use std::collections::hash_map::Entry;
@@ -17,14 +18,8 @@ use std::{str::FromStr, time::Duration};
 use tokio_postgres::error::SqlState;
 use tokio_postgres::types::{Json, ToSql};
 use tokio_postgres::{Config as PostgresConfig, NoTls, Row};
-use tokio_postgres_migration::Migration;
 use tokio_stream::{Stream, StreamExt};
 use tracing::{debug, warn};
-
-const MIGRATIONS_UP: [(&str, &str); 1] = [(
-    "1678464484380_initialize.sql",
-    include_str!("../migrations/1678464484380_initialize.sql"),
-)];
 
 /// `RawJob` represents a Relay Job for the Postgres backend.
 type RawJob = Job<Box<RawValue>, Box<RawValue>>;
@@ -95,8 +90,17 @@ impl PgStore {
     pub async fn new_with_pool(pool: Pool) -> std::result::Result<Self, anyhow::Error> {
         let mut client = pool.get().await?;
 
-        let migration = Migration::new("_relay_rs_migrations".to_string());
-        migration.up(&mut client, &MIGRATIONS_UP).await?;
+        let migrations = &[Migration::unapplied(
+            "V1__initialize",
+            include_str!("../migrations/V1__initialize.sql"),
+        )?];
+
+        let mut migration_runner = Runner::new(migrations);
+
+        migration_runner
+            .set_migration_table_name("_relay_rs_migrations")
+            .run_async(&mut **client)
+            .await?;
 
         client
             .execute(
@@ -1033,8 +1037,15 @@ mod tests {
         assert_eq!(next_job[0].id, job.id);
 
         store.delete(&job.queue, &job.id).await?;
+        Ok(())
+    }
 
-        // test rescheduling in the future
+    #[tokio::test]
+    async fn test_reschedule_future() -> anyhow::Result<()> {
+        let db_url = std::env::var("DATABASE_URL")?;
+        let store = PgStore::default(&db_url).await?;
+        let job_id = Uuid::new_v4().to_string();
+        let queue = Uuid::new_v4().to_string();
         let mut job = RawJob {
             id: job_id.clone(),
             queue: queue.clone(),

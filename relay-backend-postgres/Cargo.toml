@@ -18,9 +18,9 @@ tokio-postgres = { version = "0.7.7", features = ["with-chrono-0_4", "with-serde
 deadpool-postgres = "0.10.5"
 pg_interval = "0.4.2"
 anyhow.workspace = true
-tokio-postgres-migration = { version ="0.1.0", git="https://github.com/rust-playground/tokio-postgres-migration" }
 tokio-stream = "0.1.12"
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "time","macros"] }
+refinery = { version = "0.8.7", features = ["tokio-postgres"] }
 
 [dev-dependencies]
 uuid = { workspace = true, features = ["v4"] }
