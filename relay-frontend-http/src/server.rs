@@ -10,10 +10,12 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::signal::unix::{signal, SignalKind};
 use tower_http::trace::TraceLayer;
 use tracing::{info, span, Level, Span};
 use uuid::Uuid;
+
+#[cfg(target_family = "unix")]
+use tokio::signal::unix::{signal, SignalKind};
 
 /// The internal HTTP server representation for Jobs.
 pub struct Server;
@@ -254,6 +256,7 @@ async fn health() {}
 
 /// Tokio signal handler that will wait for a user to press CTRL+C.
 /// We use this in our hyper `Server` method `with_graceful_shutdown`.
+#[cfg(target_family = "unix")]
 async fn shutdown_signal() {
     let mut interrupt = signal(SignalKind::interrupt()).expect("Expect shutdown signal");
     let mut terminate = signal(SignalKind::terminate()).expect("Expect shutdown signal");
@@ -266,6 +269,14 @@ async fn shutdown_signal() {
         _ = hangup.recv() => println!("Received SIGHUP"),
         _ = quit.recv() => println!("Received SIGQUIT"),
     }
+    println!("received shutdown signal");
+}
+
+/// Tokio signal handler that will wait for a user to press CTRL+C.
+/// We use this in our hyper `Server` method `with_graceful_shutdown`.
+#[cfg(target_family = "windows")]
+async fn shutdown_signal() {
+    tokio::signal::ctrl_c().await.expect("Shutdown signal");
     println!("received shutdown signal");
 }
 

@@ -98,6 +98,7 @@ impl PgStore {
         let mut migration_runner = Runner::new(migrations);
 
         migration_runner
+            .set_grouped(true)
             .set_migration_table_name("_relay_rs_migrations")
             .run_async(&mut **client)
             .await?;
