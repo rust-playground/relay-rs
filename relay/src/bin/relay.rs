@@ -10,7 +10,7 @@ use tokio::sync::oneshot;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
-#[cfg(target_family = "unix")]
+#[cfg(unix)]
 use tokio::signal::unix::{signal, SignalKind};
 
 #[derive(Debug, Parser)]
