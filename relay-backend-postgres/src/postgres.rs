@@ -95,7 +95,7 @@ impl PgStore {
             include_str!("../migrations/V1__initialize.sql"),
         )?];
 
-        let mut migration_runner = Runner::new(migrations);
+        let migration_runner = Runner::new(migrations);
 
         migration_runner
             .set_grouped(true)

@@ -256,7 +256,7 @@ async fn health() {}
 
 /// Tokio signal handler that will wait for a user to press CTRL+C.
 /// We use this in our hyper `Server` method `with_graceful_shutdown`.
-#[cfg(target_family = "unix")]
+#[cfg(unix)]
 async fn shutdown_signal() {
     let mut interrupt = signal(SignalKind::interrupt()).expect("Expect shutdown signal");
     let mut terminate = signal(SignalKind::terminate()).expect("Expect shutdown signal");
@@ -274,7 +274,7 @@ async fn shutdown_signal() {
 
 /// Tokio signal handler that will wait for a user to press CTRL+C.
 /// We use this in our hyper `Server` method `with_graceful_shutdown`.
-#[cfg(target_family = "windows")]
+#[cfg(windows)]
 async fn shutdown_signal() {
     tokio::signal::ctrl_c().await.expect("Shutdown signal");
     println!("received shutdown signal");
