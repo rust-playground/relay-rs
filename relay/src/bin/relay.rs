@@ -10,6 +10,9 @@ use tokio::sync::oneshot;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
+#[cfg(target_family = "unix")]
+use tokio::signal::unix::{signal, SignalKind};
+
 #[derive(Debug, Parser)]
 #[clap(version = env!("CARGO_PKG_VERSION"), author = env!("CARGO_PKG_AUTHORS"), about = env!("CARGO_PKG_DESCRIPTION"))]
 pub struct Opts {
@@ -100,8 +103,12 @@ async fn main() -> anyhow::Result<()> {
     });
 
     #[cfg(feature = "frontend-http")]
-    relay_frontend_http::server::Server::run(backend, &format!("0.0.0.0:{}", opts.http_port))
-        .await?;
+    relay_frontend_http::server::Server::run(
+        backend,
+        &format!("0.0.0.0:{}", opts.http_port),
+        shutdown_signal(),
+    )
+    .await?;
 
     drop(shutdown_tx);
 
@@ -114,4 +121,30 @@ async fn main() -> anyhow::Result<()> {
 #[cfg(feature = "backend-postgres")]
 async fn init_postgres(opts: &Opts) -> anyhow::Result<impl Backend<Box<RawValue>, Box<RawValue>>> {
     relay_backend_postgres::PgStore::new(&opts.database_url, opts.database_max_connections).await
+}
+
+/// Tokio signal handler that will wait for a user to press CTRL+C.
+/// We use this in our hyper `Server` method `with_graceful_shutdown`.
+#[cfg(unix)]
+async fn shutdown_signal() {
+    let mut interrupt = signal(SignalKind::interrupt()).expect("Expect shutdown signal");
+    let mut terminate = signal(SignalKind::terminate()).expect("Expect shutdown signal");
+    let mut hangup = signal(SignalKind::hangup()).expect("Expect shutdown signal");
+    let mut quit = signal(SignalKind::quit()).expect("Expect shutdown signal");
+
+    tokio::select! {
+        _ = interrupt.recv() => println!("Received SIGINT"),
+        _ = terminate.recv() => println!("Received SIGTERM"),
+        _ = hangup.recv() => println!("Received SIGHUP"),
+        _ = quit.recv() => println!("Received SIGQUIT"),
+    }
+    println!("received shutdown signal");
+}
+
+/// Tokio signal handler that will wait for a user to press CTRL+C.
+/// We use this in our hyper `Server` method `with_graceful_shutdown`.
+#[cfg(windows)]
+async fn shutdown_signal() {
+    tokio::signal::ctrl_c().await.expect("Shutdown signal");
+    println!("received shutdown signal");
 }

@@ -8,14 +8,12 @@ use metrics::increment_counter;
 use relay_core::{Backend, Error, Job};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 use tower_http::trace::TraceLayer;
 use tracing::{info, span, Level, Span};
 use uuid::Uuid;
-
-#[cfg(target_family = "unix")]
-use tokio::signal::unix::{signal, SignalKind};
 
 /// The internal HTTP server representation for Jobs.
 pub struct Server;
@@ -254,32 +252,6 @@ where
 #[allow(clippy::unused_async)]
 async fn health() {}
 
-/// Tokio signal handler that will wait for a user to press CTRL+C.
-/// We use this in our hyper `Server` method `with_graceful_shutdown`.
-#[cfg(unix)]
-async fn shutdown_signal() {
-    let mut interrupt = signal(SignalKind::interrupt()).expect("Expect shutdown signal");
-    let mut terminate = signal(SignalKind::terminate()).expect("Expect shutdown signal");
-    let mut hangup = signal(SignalKind::hangup()).expect("Expect shutdown signal");
-    let mut quit = signal(SignalKind::quit()).expect("Expect shutdown signal");
-
-    tokio::select! {
-        _ = interrupt.recv() => println!("Received SIGINT"),
-        _ = terminate.recv() => println!("Received SIGTERM"),
-        _ = hangup.recv() => println!("Received SIGHUP"),
-        _ = quit.recv() => println!("Received SIGQUIT"),
-    }
-    println!("received shutdown signal");
-}
-
-/// Tokio signal handler that will wait for a user to press CTRL+C.
-/// We use this in our hyper `Server` method `with_graceful_shutdown`.
-#[cfg(windows)]
-async fn shutdown_signal() {
-    tokio::signal::ctrl_c().await.expect("Shutdown signal");
-    println!("received shutdown signal");
-}
-
 impl Server {
     /// starts the HTTP server and waits for a shutdown signal before returning.
     ///
@@ -292,16 +264,17 @@ impl Server {
     /// Will panic the reaper async thread fails, which can only happen if the timer and channel
     /// both die.
     #[inline]
-    pub async fn run<BE, T>(backend: Arc<BE>, addr: &str) -> anyhow::Result<()>
+    pub async fn run<BE, T, F>(backend: Arc<BE>, addr: &str, shutdown: F) -> anyhow::Result<()>
     where
         T: Serialize + DeserializeOwned + Send + Sync + 'static,
         BE: Backend<T, T> + Send + Sync + 'static,
+        F: Future<Output = ()>,
     {
         let app = Server::init_app(backend);
 
         axum::Server::bind(&addr.parse().unwrap())
             .serve(app.into_make_service())
-            .with_graceful_shutdown(shutdown_signal())
+            .with_graceful_shutdown(shutdown)
             .await
             .unwrap();
         Ok(())
