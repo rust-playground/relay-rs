@@ -22,11 +22,10 @@ percent-encoding.workspace = true
 async-channel.workspace = true
 axum = { version = "0.6.10", default-features = false, features = ["http1", "http2", "json","matched-path","original-uri","query","tokio","tower-log"] }
 tower-http = { version = "0.4.0", features = ["trace"] }
-uuid.workspace = true
+uuid = { workspace = true, features = ["v4"] }
 
 
 [dev-dependencies]
 portpicker = "0.1.1"
 relay-backend-postgres = { version = "*", path="../relay-backend-postgres"}
-uuid = { workspace = true, features = ["v4"] }
 chrono.workspace = true
