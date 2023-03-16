@@ -6,7 +6,7 @@ WORKDIR /src
 COPY . .
 RUN apt-get update && apt-get install -y pkg-config libssl-dev
 RUN --mount=type=cache,target=target \
-    && mkdir -p /out \
+    mkdir -p /out \
     && cargo build -p relay --features metrics-prometheus --release \
     && mv target/release/relay /out/relay
 
