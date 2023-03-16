@@ -7,7 +7,7 @@ COPY . .
 RUN --mount=type=cache,target=target \
     apt-get update && apt-get install -y pkg-config libssl-dev \
     && mkdir -p /out \
-    && cargo build -p relay --features metrics-prometheus --release \
+    && cargo build --jobs 1 -p relay --features metrics-prometheus --release \
     && mv target/release/relay /out/relay
 
 FROM debian:buster-slim
