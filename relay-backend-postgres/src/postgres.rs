@@ -1,4 +1,5 @@
 #![allow(clippy::cast_possible_truncation)]
+use crate::migrations::{run_migrations, Migration};
 use async_trait::async_trait;
 use chrono::{TimeZone, Utc};
 use deadpool_postgres::{
@@ -7,7 +8,6 @@ use deadpool_postgres::{
 };
 use metrics::{counter, histogram, increment_counter};
 use pg_interval::Interval;
-use refinery::{Migration, Runner};
 use relay_core::{Backend, Error, Job, Result};
 use serde_json::value::RawValue;
 use std::collections::hash_map::Entry;
@@ -20,6 +20,11 @@ use tokio_postgres::types::{Json, ToSql};
 use tokio_postgres::{Config as PostgresConfig, NoTls, Row};
 use tokio_stream::{Stream, StreamExt};
 use tracing::{debug, warn};
+
+const MIGRATIONS: [Migration; 1] = [Migration::new(
+    "1678464484380_initialize.sql",
+    include_str!("../migrations/1678464484380_initialize.sql"),
+)];
 
 /// `RawJob` represents a Relay Job for the Postgres backend.
 type RawJob = Job<Box<RawValue>, Box<RawValue>>;
@@ -88,30 +93,10 @@ impl PgStore {
     /// Will return `Err` if connecting the server or running migrations fails.
     #[inline]
     pub async fn new_with_pool(pool: Pool) -> std::result::Result<Self, anyhow::Error> {
-        let mut client = pool.get().await?;
-
-        let migrations = &[Migration::unapplied(
-            "V1__initialize",
-            include_str!("../migrations/V1__initialize.sql"),
-        )?];
-
-        let migration_runner = Runner::new(migrations);
-
-        migration_runner
-            .set_grouped(true)
-            .set_migration_table_name("_relay_rs_migrations")
-            .run_async(&mut **client)
-            .await?;
-
-        client
-            .execute(
-                r#"
-                INSERT INTO internal_state (id, last_run) VALUES ('reap',$1) ON CONFLICT DO NOTHING
-            "#,
-                &[&Utc::now().naive_utc()],
-            )
-            .await?;
-
+        {
+            let mut client = pool.get().await?;
+            run_migrations("_relay_rs_migrations", &mut client, &MIGRATIONS).await?;
+        }
         Ok(Self { pool })
     }
 }

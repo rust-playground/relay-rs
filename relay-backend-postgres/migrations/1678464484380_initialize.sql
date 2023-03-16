@@ -20,4 +20,6 @@ CREATE TABLE IF NOT EXISTS internal_state (
     id varchar NOT NULL,
     last_run timestamp without time zone NOT NULL,
     PRIMARY KEY (id)
-)
+);
+
+INSERT INTO internal_state (id, last_run) VALUES ('reap', NOW()) ON CONFLICT DO NOTHING;
