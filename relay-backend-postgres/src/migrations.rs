@@ -1,7 +1,5 @@
 use chrono::Utc;
-use tokio_postgres::error::SqlState;
 use tokio_postgres::Client;
-use tracing::debug;
 
 pub(crate) struct Migration {
     name: &'static str,
@@ -57,19 +55,6 @@ pub(crate) async fn run_migrations(
         transaction.batch_execute(m.sql).await?;
     }
 
-    let result = transaction.commit().await;
-    match result {
-        Err(e) => {
-            // if unique constraint, should be the migration failing to insert record before
-            // applying and so transaction failed which is OK because means someone else applied it
-            // already before we got the tables exclusive lock.
-            if let Some(&SqlState::UNIQUE_VIOLATION) = e.code() {
-                debug!("aborting migration, another process has already applied.");
-                Ok(())
-            } else {
-                Err(e.into())
-            }
-        }
-        Ok(_) => Ok(()),
-    }
+    transaction.commit().await?;
+    Ok(())
 }
