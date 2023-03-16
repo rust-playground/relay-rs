@@ -25,12 +25,12 @@ pub(crate) async fn run_migrations(
     transaction
         .batch_execute(&format!(
             r#"
+        SELECT pg_advisory_xact_lock(13);
         CREATE TABLE IF NOT EXISTS {table_name} (
             name         varchar NOT NULL,
             applied_at   timestamp without time zone NOT NULL,
             PRIMARY KEY (name)
         );
-        LOCK TABLE ONLY {table_name} IN ACCESS EXCLUSIVE MODE;
         "#
         ))
         .await?;
@@ -46,12 +46,14 @@ pub(crate) async fn run_migrations(
         if exists {
             continue;
         }
+
         transaction
             .execute(
                 &format!("INSERT INTO {table_name} (name, applied_at) VALUES ($1, $2)"),
                 &[&m.name, &Utc::now().naive_utc()],
             )
             .await?;
+
         transaction.batch_execute(m.sql).await?;
     }
 
