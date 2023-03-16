@@ -44,7 +44,6 @@ pub(crate) async fn run_migrations(
         if exists {
             continue;
         }
-
         transaction
             .execute(
                 &format!("INSERT INTO {table_name} (name, applied_at) VALUES ($1, $2)"),
