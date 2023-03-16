@@ -52,16 +52,16 @@ jobs:
             org.opencontainers.image.description=This contains a no nonsense, horizontally scalable, ordered job runner backed by Postgres.
             org.opencontainers.image.licenses: Apache-2.0 OR MIT
 
-      - name: Build and push Docker image linux/amd64
-        uses: docker/build-push-action@v3
-        with:
-          context: .
-          push: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          platforms: linux/amd64
+#      - name: Build and push Docker image linux/amd64
+#        uses: docker/build-push-action@v3
+#        with:
+#          context: .
+#          push: true
+#          cache-from: type=gha
+#          cache-to: type=gha,mode=max
+#          tags: ${{ steps.meta.outputs.tags }}
+#          labels: ${{ steps.meta.outputs.labels }}
+#          platforms: linux/amd64
 
       - name: Build and push Docker image linux/arm64
         uses: docker/build-push-action@v3
