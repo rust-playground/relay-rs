@@ -4,7 +4,7 @@ FROM rust:slim-buster as builder
 WORKDIR /src
 
 COPY . .
-RUN apt-get update && apt-get install -y pkg-config libssl-dev
+RUN apt-get update && apt-get install -y pkg-config libssl-dev git
 RUN --mount=type=cache,target=target \
     mkdir -p /out \
     && cargo build -p relay --features metrics-prometheus --release \
