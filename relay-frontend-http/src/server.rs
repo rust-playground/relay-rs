@@ -297,19 +297,27 @@ impl Server {
             .layer(
                 TraceLayer::new_for_http()
                     .make_span_with(|request: &Request<Body>| {
-                        let request_id = Uuid::new_v4().to_string();
-                        span!(
+                        let dbg = span!(
                             Level::DEBUG,
+                            "request",
+                            id = %Uuid::new_v4().to_string(),
+                        );
+                        span!(
+                            parent: &dbg,
+                            Level::INFO,
                             "request",
                             method = %request.method(),
                             uri = %request.uri(),
                             version = ?request.version(),
-                                request_id = %request_id,
                         )
                     })
                     .on_response(
                         |response: &Response<BoxBody>, latency: Duration, _span: &Span| {
-                            info!("{} {:?}", response.status().as_u16(), latency);
+                            info!(
+                                target: "response",
+                                status = response.status().as_u16(),
+                                latency = ?latency,
+                            );
                         },
                     ),
             )

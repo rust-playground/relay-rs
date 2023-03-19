@@ -6,10 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.12.0] - 2023-03-13
+## [0.12.0] - 2023-03-18
 ### Changed
-- SQLX -> Tokio Postgres + Deadpool. This allows for far finer grained control, especially over the connection pool.
+- SQLX -> Tokio Postgres + Deadpool. Better performance and allows for finer grained control.
 - Actix Web -> Axum.
+- Switched to internal migrations runner with proper locking semantics.
 
 ## [0.11.0] - 2023-01-03
 ### Added

@@ -685,8 +685,8 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
         let stmt = client
             .prepare_cached(
                 r#"
-            UPDATE internal_state 
-            SET last_run=NOW() 
+            UPDATE internal_state
+            SET last_run=NOW()
             WHERE last_run <= NOW() - $1::text::interval"#,
             )
             .await
