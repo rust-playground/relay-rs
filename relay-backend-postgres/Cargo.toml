@@ -1,6 +1,6 @@
 [package]
 name = "relay-backend-postgres"
-version = "0.5.0"
+version = "0.6.0"
 edition.workspace = true
 authors.workspace = true
 description.workspace = true
@@ -9,15 +9,18 @@ description.workspace = true
 
 [dependencies]
 relay-core.workspace = true
-sqlx = { version = "0.6.2", features = ["postgres", "chrono","runtime-tokio-rustls", "all-types", "migrate"] }
-log.workspace = true
 tracing.workspace = true
 metrics.workspace = true
 chrono.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 async-trait.workspace = true
+tokio-postgres = { version = "0.7.7", features = ["with-chrono-0_4", "with-serde_json-1", "with-uuid-1"] }
+deadpool-postgres = "0.10.5"
+pg_interval = "0.4.2"
+anyhow.workspace = true
+tokio-stream = "0.1.12"
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "time","macros"] }
 
 [dev-dependencies]
 uuid = { workspace = true, features = ["v4"] }
-anyhow.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "net", "time","macros"] }
+

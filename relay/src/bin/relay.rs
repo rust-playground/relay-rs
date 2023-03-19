@@ -8,6 +8,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tracing::{error, info};
+use tracing_subscriber::EnvFilter;
+
+#[cfg(unix)]
+use tokio::signal::unix::{signal, SignalKind};
 
 #[derive(Debug, Parser)]
 #[clap(version = env!("CARGO_PKG_VERSION"), author = env!("CARGO_PKG_AUTHORS"), about = env!("CARGO_PKG_DESCRIPTION"))]
@@ -34,7 +38,7 @@ pub struct Opts {
     /// Maximum allowed database connections
     #[cfg(feature = "backend-postgres")]
     #[clap(long, default_value = "10", env = "DATABASE_MAX_CONNECTIONS")]
-    pub database_max_connections: u32,
+    pub database_max_connections: usize,
 
     /// This time interval, in seconds, between runs checking for retries and failed jobs.
     #[clap(long, default_value = "5", env = "REAP_INTERVAL")]
@@ -53,7 +57,11 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // install global collector configured based on RUST_LOG env var.
-    tracing_subscriber::fmt::init();
+    let (non_blocking, _guard) = tracing_appender::non_blocking(std::io::stdout());
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_writer(non_blocking)
+        .init();
 
     let opts: Opts = Opts::parse();
 
@@ -95,28 +103,48 @@ async fn main() -> anyhow::Result<()> {
     });
 
     #[cfg(feature = "frontend-http")]
-    relay_frontend_http::server::Server::run(backend, &format!("0.0.0.0:{}", opts.http_port))
-        .await?;
+    relay_frontend_http::server::Server::run(
+        backend,
+        &format!("0.0.0.0:{}", opts.http_port),
+        shutdown_signal(),
+    )
+    .await?;
 
     drop(shutdown_tx);
 
     reaper.await?;
     info!("Reaper shutdown");
-
+    info!("Application gracefully shutdown");
     Ok(())
 }
 
 #[cfg(feature = "backend-postgres")]
 async fn init_postgres(opts: &Opts) -> anyhow::Result<impl Backend<Box<RawValue>, Box<RawValue>>> {
-    let min_connections = if opts.database_max_connections < 10 {
-        1
-    } else {
-        10
-    };
-    Ok(relay_backend_postgres::PgStore::new(
-        &opts.database_url,
-        min_connections,
-        opts.database_max_connections,
-    )
-    .await?)
+    relay_backend_postgres::PgStore::new(&opts.database_url, opts.database_max_connections).await
+}
+
+/// Tokio signal handler that will wait for a user to press CTRL+C.
+/// We use this in our hyper `Server` method `with_graceful_shutdown`.
+#[cfg(unix)]
+async fn shutdown_signal() {
+    let mut interrupt = signal(SignalKind::interrupt()).expect("Expect shutdown signal");
+    let mut terminate = signal(SignalKind::terminate()).expect("Expect shutdown signal");
+    let mut hangup = signal(SignalKind::hangup()).expect("Expect shutdown signal");
+    let mut quit = signal(SignalKind::quit()).expect("Expect shutdown signal");
+
+    tokio::select! {
+        _ = interrupt.recv() => println!("Received SIGINT"),
+        _ = terminate.recv() => println!("Received SIGTERM"),
+        _ = hangup.recv() => println!("Received SIGHUP"),
+        _ = quit.recv() => println!("Received SIGQUIT"),
+    }
+    println!("received shutdown signal");
+}
+
+/// Tokio signal handler that will wait for a user to press CTRL+C.
+/// We use this in our hyper `Server` method `with_graceful_shutdown`.
+#[cfg(windows)]
+async fn shutdown_signal() {
+    tokio::signal::ctrl_c().await.expect("Shutdown signal");
+    println!("received shutdown signal");
 }

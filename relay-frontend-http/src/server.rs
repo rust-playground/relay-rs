@@ -1,37 +1,40 @@
-use actix_web::body::MessageBody;
-use actix_web::dev::{ServiceFactory, ServiceRequest, ServiceResponse};
-use actix_web::http::StatusCode;
-use actix_web::middleware::Logger;
-use actix_web::{web, App, HttpResponse, HttpServer};
+use axum::body::{Body, BoxBody};
+use axum::extract::{Path, Query, State};
+use axum::http::{Request, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::routing::{delete, get, head, patch, post, put};
+use axum::{Json, Router};
 use metrics::increment_counter;
 use relay_core::{Backend, Error, Job};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
+use tower_http::trace::TraceLayer;
+use tracing::{info, span, Level, Span};
+use uuid::Uuid;
 
 /// The internal HTTP server representation for Jobs.
 pub struct Server;
 
-#[derive(Deserialize)]
-struct GetInfo {
-    queue: String,
-    id: String,
-}
-
 #[tracing::instrument(name = "http_get", level = "debug", skip_all)]
-async fn get<BE, T>(data: web::Data<Arc<BE>>, info: web::Path<GetInfo>) -> HttpResponse
+async fn get_job<BE, T>(
+    State(state): State<Arc<BE>>,
+    Path((queue, id)): Path<(String, String)>,
+) -> Response
 where
     T: Serialize,
     BE: Backend<T, T>,
 {
-    increment_counter!("http_request", "endpoint" => "get", "queue" => info.queue.clone());
+    increment_counter!("http_request", "endpoint" => "get", "queue" => queue.clone());
 
-    match data.get(&info.queue, &info.id).await {
+    match state.get(&queue, &id).await {
         Ok(job) => {
             if let Some(job) = job {
-                HttpResponse::build(StatusCode::OK).json(job)
+                Json(job).into_response()
             } else {
-                HttpResponse::build(StatusCode::NOT_FOUND).finish()
+                StatusCode::NOT_FOUND.into_response()
             }
         }
         Err(e) => {
@@ -39,36 +42,33 @@ where
             match e {
                 Error::Backend { .. } => {
                     if e.is_retryable() {
-                        HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
+                        (StatusCode::TOO_MANY_REQUESTS, e.to_string()).into_response()
                     } else {
-                        HttpResponse::build(StatusCode::UNPROCESSABLE_ENTITY).body(e.to_string())
+                        (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response()
                     }
                 }
-                _ => HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string()),
+                _ => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
             }
         }
     }
 }
 
-#[derive(Deserialize)]
-struct ExistsInfo {
-    queue: String,
-    id: String,
-}
-
 #[tracing::instrument(name = "http_exists", level = "debug", skip_all)]
-async fn exists<BE, T>(data: web::Data<Arc<BE>>, info: web::Path<ExistsInfo>) -> HttpResponse
+async fn exists<BE, T>(
+    State(state): State<Arc<BE>>,
+    Path((queue, id)): Path<(String, String)>,
+) -> Response
 where
     BE: Backend<T, T>,
 {
-    increment_counter!("http_request", "endpoint" => "exists", "queue" => info.queue.clone());
+    increment_counter!("http_request", "endpoint" => "exists", "queue" => queue.clone());
 
-    match data.exists(&info.queue, &info.id).await {
+    match state.exists(&queue, &id).await {
         Ok(exists) => {
             if exists {
-                HttpResponse::build(StatusCode::OK).finish()
+                StatusCode::OK.into_response()
             } else {
-                HttpResponse::build(StatusCode::NOT_FOUND).finish()
+                StatusCode::NOT_FOUND.into_response()
             }
         }
         Err(e) => {
@@ -76,49 +76,42 @@ where
             match e {
                 Error::Backend { .. } => {
                     if e.is_retryable() {
-                        HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
+                        (StatusCode::TOO_MANY_REQUESTS, e.to_string()).into_response()
                     } else {
-                        HttpResponse::build(StatusCode::UNPROCESSABLE_ENTITY).body(e.to_string())
+                        (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response()
                     }
                 }
-                _ => HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string()),
+                _ => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
             }
         }
     }
 }
 
 #[tracing::instrument(name = "http_enqueue", level = "debug", skip_all)]
-async fn enqueue<BE, T>(data: web::Data<Arc<BE>>, jobs: web::Json<Vec<Job<T, T>>>) -> HttpResponse
+async fn enqueue<BE, T>(State(state): State<Arc<BE>>, jobs: Json<Vec<Job<T, T>>>) -> Response
 where
     BE: Backend<T, T>,
 {
     increment_counter!("http_request", "endpoint" => "enqueue");
 
-    if let Err(e) = data.enqueue(&jobs.0).await {
+    if let Err(e) = state.enqueue(&jobs.0).await {
         increment_counter!("errors", "endpoint" => "enqueue", "type" => e.error_type());
         match e {
             Error::Backend { .. } => {
                 if e.is_retryable() {
-                    HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
+                    (StatusCode::TOO_MANY_REQUESTS, e.to_string()).into_response()
                 } else {
-                    HttpResponse::build(StatusCode::UNPROCESSABLE_ENTITY).body(e.to_string())
+                    (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response()
                 }
             }
-            Error::JobExists { .. } => {
-                HttpResponse::build(StatusCode::CONFLICT).body(e.to_string())
-            }
+            Error::JobExists { .. } => (StatusCode::CONFLICT, e.to_string()).into_response(),
             Error::JobNotFound { .. } => {
-                HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string())
+                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
             }
         }
     } else {
-        HttpResponse::build(StatusCode::ACCEPTED).finish()
+        StatusCode::ACCEPTED.into_response()
     }
-}
-
-#[derive(Deserialize)]
-struct NextPathInfo {
-    queue: String,
 }
 
 #[derive(Deserialize)]
@@ -133,147 +126,131 @@ const fn default_num_jobs() -> u32 {
 
 #[tracing::instrument(name = "http_next", level = "debug", skip_all)]
 async fn next<BE, T>(
-    data: web::Data<Arc<BE>>,
-    path_info: web::Path<NextPathInfo>,
-    query_info: web::Query<NextQueryInfo>,
-) -> HttpResponse
+    State(state): State<Arc<BE>>,
+    Path(queue): Path<String>,
+    params: Query<NextQueryInfo>,
+) -> Response
 where
     T: Serialize,
     BE: Backend<T, T>,
 {
-    increment_counter!("http_request", "endpoint" => "next", "queue" => path_info.queue.clone());
+    increment_counter!("http_request", "endpoint" => "next", "queue" => queue.clone());
 
-    match data.next(&path_info.queue, query_info.num_jobs).await {
+    match state.next(&queue, params.num_jobs).await {
         Err(e) => {
             increment_counter!("errors", "endpoint" => "next", "type" => e.error_type(), "queue" => e.queue());
             if let Error::Backend { .. } = e {
                 if e.is_retryable() {
-                    HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
+                    (StatusCode::TOO_MANY_REQUESTS, e.to_string()).into_response()
                 } else {
-                    HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string())
+                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
                 }
             } else {
-                HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string())
+                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
             }
         }
         Ok(job) => match job {
-            None => HttpResponse::build(StatusCode::NO_CONTENT).finish(),
-            Some(job) => HttpResponse::build(StatusCode::OK).json(job),
+            None => StatusCode::NO_CONTENT.into_response(),
+            Some(job) => (StatusCode::OK, Json(job)).into_response(),
         },
     }
 }
 
-#[derive(Deserialize)]
-struct HeartbeatInfo {
-    queue: String,
-    id: String,
-}
-
 #[tracing::instrument(name = "http_heartbeat", level = "debug", skip_all)]
 async fn heartbeat<BE, T>(
-    data: web::Data<Arc<BE>>,
-    info: web::Path<HeartbeatInfo>,
-    state: Option<web::Json<T>>,
-) -> HttpResponse
+    State(state): State<Arc<BE>>,
+    Path((queue, id)): Path<(String, String)>,
+    job_state: Option<Json<T>>,
+) -> Response
 where
+    T: DeserializeOwned,
     BE: Backend<T, T>,
 {
-    increment_counter!("http_request", "endpoint" => "heartbeat", "queue" => info.queue.clone());
+    increment_counter!("http_request", "endpoint" => "heartbeat", "queue" => queue.clone());
 
-    let state = match state {
+    let job_state = match job_state {
         None => None,
-        Some(state) => Some(state.0),
+        Some(job_state) => Some(job_state.0),
     };
-    if let Err(e) = data.heartbeat(&info.queue, &info.id, state).await {
+    if let Err(e) = state.heartbeat(&queue, &id, job_state).await {
         increment_counter!("errors", "endpoint" => "heartbeat", "type" => e.error_type(), "queue" => e.queue());
         match e {
-            Error::JobNotFound { .. } => {
-                HttpResponse::build(StatusCode::NOT_FOUND).body(e.to_string())
-            }
+            Error::JobNotFound { .. } => (StatusCode::NOT_FOUND, e.to_string()).into_response(),
             Error::Backend { .. } => {
                 if e.is_retryable() {
-                    HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
+                    (StatusCode::TOO_MANY_REQUESTS, e.to_string()).into_response()
                 } else {
-                    HttpResponse::build(StatusCode::UNPROCESSABLE_ENTITY).body(e.to_string())
+                    (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response()
                 }
             }
             Error::JobExists { .. } => {
-                HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string())
+                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
             }
         }
     } else {
-        HttpResponse::build(StatusCode::ACCEPTED).finish()
+        StatusCode::ACCEPTED.into_response()
     }
 }
 
 #[tracing::instrument(name = "http_reschedule", level = "debug", skip_all)]
-async fn reschedule<BE, T>(data: web::Data<Arc<BE>>, job: web::Json<Job<T, T>>) -> HttpResponse
+async fn reschedule<BE, T>(State(state): State<Arc<BE>>, job: Json<Job<T, T>>) -> Response
 where
     BE: Backend<T, T>,
 {
     increment_counter!("http_request", "endpoint" => "reschedule", "queue" => job.0.queue.clone());
 
-    if let Err(e) = data.reschedule(&job.0).await {
+    if let Err(e) = state.reschedule(&job.0).await {
         increment_counter!("errors", "endpoint" => "enqueued", "type" => e.error_type(), "queue" => e.queue());
         match e {
             Error::JobExists { .. } => {
-                HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string())
+                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
             }
             Error::Backend { .. } => {
                 if e.is_retryable() {
-                    HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
+                    (StatusCode::TOO_MANY_REQUESTS, e.to_string()).into_response()
                 } else {
-                    HttpResponse::build(StatusCode::UNPROCESSABLE_ENTITY).body(e.to_string())
+                    (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response()
                 }
             }
-            Error::JobNotFound { .. } => {
-                HttpResponse::build(StatusCode::NOT_FOUND).body(e.to_string())
-            }
+            Error::JobNotFound { .. } => (StatusCode::NOT_FOUND, e.to_string()).into_response(),
         }
     } else {
-        HttpResponse::build(StatusCode::ACCEPTED).finish()
+        StatusCode::ACCEPTED.into_response()
     }
 }
 
-#[derive(Deserialize)]
-struct CompleteInfo {
-    queue: String,
-    id: String,
-}
-
 #[tracing::instrument(name = "http_delete", level = "debug", skip_all)]
-async fn delete<BE, T>(data: web::Data<Arc<BE>>, info: web::Path<CompleteInfo>) -> HttpResponse
+async fn delete_job<BE, T>(
+    State(state): State<Arc<BE>>,
+    Path((queue, id)): Path<(String, String)>,
+) -> Response
 where
     BE: Backend<T, T>,
 {
-    increment_counter!("http_request", "endpoint" => "delete", "queue" => info.queue.clone());
+    increment_counter!("http_request", "endpoint" => "delete", "queue" => queue.clone());
 
-    if let Err(e) = data.delete(&info.queue, &info.id).await {
+    if let Err(e) = state.delete(&queue, &id).await {
         increment_counter!("errors", "endpoint" => "delete", "type" => e.error_type(), "queue" => e.queue());
         match e {
-            Error::JobNotFound { .. } => {
-                HttpResponse::build(StatusCode::NOT_FOUND).body(e.to_string())
-            }
+            Error::JobNotFound { .. } => (StatusCode::NOT_FOUND, e.to_string()).into_response(),
             Error::Backend { .. } => {
                 if e.is_retryable() {
-                    HttpResponse::build(StatusCode::TOO_MANY_REQUESTS).body(e.to_string())
+                    (StatusCode::TOO_MANY_REQUESTS, e.to_string()).into_response()
                 } else {
-                    HttpResponse::build(StatusCode::UNPROCESSABLE_ENTITY).body(e.to_string())
+                    (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response()
                 }
             }
             Error::JobExists { .. } => {
-                HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body(e.to_string())
+                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
             }
         }
     } else {
-        HttpResponse::build(StatusCode::OK).finish()
+        StatusCode::OK.into_response()
     }
 }
 
 #[allow(clippy::unused_async)]
-async fn health() -> HttpResponse {
-    HttpResponse::build(StatusCode::OK).finish()
-}
+async fn health() {}
 
 impl Server {
     /// starts the HTTP server and waits for a shutdown signal before returning.
@@ -287,54 +264,64 @@ impl Server {
     /// Will panic the reaper async thread fails, which can only happen if the timer and channel
     /// both die.
     #[inline]
-    pub async fn run<BE, T>(backend: Arc<BE>, addr: &str) -> anyhow::Result<()>
+    pub async fn run<BE, T, F>(backend: Arc<BE>, addr: &str, shutdown: F) -> anyhow::Result<()>
     where
         T: Serialize + DeserializeOwned + Send + Sync + 'static,
         BE: Backend<T, T> + Send + Sync + 'static,
+        F: Future<Output = ()>,
     {
-        HttpServer::new(move || Self::init_app(backend.clone()))
-            .bind(addr)?
-            .run()
-            .await?;
+        let app = Server::init_app(backend);
+
+        axum::Server::bind(&addr.parse().unwrap())
+            .serve(app.into_make_service())
+            .with_graceful_shutdown(shutdown)
+            .await
+            .unwrap();
         Ok(())
     }
 
-    // from https://github.com/actix/actix-web/wiki/FAQ#how-can-i-return-app-from-a-function--why-is-appentry-private
-    pub(crate) fn init_app<BE, T>(
-        backend: Arc<BE>,
-    ) -> App<
-        impl ServiceFactory<
-            ServiceRequest,
-            Response = ServiceResponse<impl MessageBody>,
-            Config = (),
-            InitError = (),
-            Error = actix_web::Error,
-        >,
-    >
+    pub(crate) fn init_app<BE, T>(backend: Arc<BE>) -> Router
     where
         T: Serialize + DeserializeOwned + Send + Sync + 'static,
         BE: Backend<T, T> + Send + Sync + 'static,
     {
-        App::new()
-            .app_data(web::Data::new(backend))
-            .wrap(Logger::new("%a %r %s %Dms"))
-            .route("/v1/queues/jobs", web::post().to(enqueue::<BE, T>))
-            .route("/v1/queues/jobs", web::put().to(reschedule::<BE, T>))
-            .route("/v1/queues/{queue}/jobs", web::get().to(next::<BE, T>))
-            .route(
-                "/v1/queues/{queue}/jobs/{id}",
-                web::delete().to(delete::<BE, T>),
+        Router::new()
+            .route("/v1/queues/jobs", post(enqueue))
+            .route("/v1/queues/jobs", put(reschedule))
+            .route("/v1/queues/:queue/jobs", get(next))
+            .route("/v1/queues/:queue/jobs/:id", head(exists))
+            .route("/v1/queues/:queue/jobs/:id", get(get_job))
+            .route("/v1/queues/:queue/jobs/:id", patch(heartbeat))
+            .route("/v1/queues/:queue/jobs/:id", delete(delete_job))
+            .route("/health", get(health))
+            .layer(
+                TraceLayer::new_for_http()
+                    .make_span_with(|request: &Request<Body>| {
+                        let dbg = span!(
+                            Level::DEBUG,
+                            "request",
+                            id = %Uuid::new_v4().to_string(),
+                        );
+                        span!(
+                            parent: &dbg,
+                            Level::INFO,
+                            "request",
+                            method = %request.method(),
+                            uri = %request.uri(),
+                            version = ?request.version(),
+                        )
+                    })
+                    .on_response(
+                        |response: &Response<BoxBody>, latency: Duration, _span: &Span| {
+                            info!(
+                                target: "response",
+                                status = response.status().as_u16(),
+                                latency = ?latency,
+                            );
+                        },
+                    ),
             )
-            .route(
-                "/v1/queues/{queue}/jobs/{id}",
-                web::head().to(exists::<BE, T>),
-            )
-            .route("/v1/queues/{queue}/jobs/{id}", web::get().to(get::<BE, T>))
-            .route(
-                "/v1/queues/{queue}/jobs/{id}",
-                web::patch().to(heartbeat::<BE, T>),
-            )
-            .route("/health", web::get().to(health))
+            .with_state(backend)
     }
 }
 
@@ -342,33 +329,44 @@ impl Server {
 mod tests {
     use super::*;
     use crate::client::{Builder as ClientBuilder, Client};
-    use actix_http::HttpService;
-    use actix_http_test::{test_server, TestServer};
-    use actix_service::map_config;
-    use actix_service::ServiceFactoryExt;
-    use actix_web::dev::AppConfig;
+    use anyhow::{anyhow, Context};
     use chrono::DurationRound;
     use chrono::Utc;
+    use portpicker::pick_unused_port;
     use relay_backend_postgres::PgStore;
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
+    use tokio::task::JoinHandle;
     use uuid::Uuid;
 
-    async fn init_server() -> anyhow::Result<(TestServer, Arc<Client>)> {
+    /// Generates a `SocketAddr` on the IP 0.0.0.0, using a random port.
+    pub fn new_random_socket_addr() -> anyhow::Result<SocketAddr> {
+        let ip_address = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0));
+        let port = pick_unused_port().ok_or_else(|| anyhow!("No free port was found"))?;
+        let addr = SocketAddr::new(ip_address, port);
+        Ok(addr)
+    }
+
+    async fn init_server() -> anyhow::Result<(JoinHandle<()>, Arc<Client>)> {
         let db_url = std::env::var("DATABASE_URL")?;
         let store = Arc::new(PgStore::default(&db_url).await?);
+        let app = Server::init_app(store);
 
-        let srv = test_server(move || {
-            HttpService::build()
-                .h1(map_config(Server::init_app(store.clone()), |_| {
-                    AppConfig::default()
-                }))
-                .tcp()
-                .map_err(|_| ())
-        })
-        .await;
+        let socket_address =
+            new_random_socket_addr().expect("Cannot create socket address for use");
+        let listener = TcpListener::bind(socket_address)
+            .with_context(|| "Failed to create TCPListener for TestServer")?;
+        let server_address = socket_address.to_string();
+        let server = axum::Server::from_tcp(listener)
+            .with_context(|| "Failed to create ::axum::Server for TestServer")?
+            .serve(app.into_make_service());
 
-        let url = format!("http://{}", srv.addr());
+        let server_thread = tokio::spawn(async move {
+            server.await.expect("Expect server to start serving");
+        });
+
+        let url = format!("http://{server_address}");
         let client = ClientBuilder::new(&url).build();
-        Ok((srv, Arc::new(client)))
+        Ok((server_thread, Arc::new(client)))
     }
 
     #[tokio::test]
