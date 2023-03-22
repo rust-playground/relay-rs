@@ -9,15 +9,19 @@ use deadpool_postgres::{
 use metrics::{counter, histogram, increment_counter};
 use pg_interval::Interval;
 use relay_core::{Backend, Error, Job, Result};
+use rustls::client::{ServerCertVerified, ServerCertVerifier, WebPkiVerifier};
+use rustls::{Certificate, OwnedTrustAnchor, RootCertStore, ServerName};
 use serde_json::value::RawValue;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::io;
 use std::io::ErrorKind;
+use std::sync::Arc;
+use std::time::SystemTime;
 use std::{str::FromStr, time::Duration};
 use tokio_postgres::error::SqlState;
 use tokio_postgres::types::{Json, ToSql};
-use tokio_postgres::{Config as PostgresConfig, NoTls, Row};
+use tokio_postgres::{Config as PostgresConfig, Row};
 use tokio_stream::{Stream, StreamExt};
 use tracing::{debug, warn};
 
@@ -55,7 +59,24 @@ impl PgStore {
         uri: &str,
         max_connections: usize,
     ) -> std::result::Result<Self, anyhow::Error> {
-        let mut pg_config = PostgresConfig::from_str(uri)?;
+        // Attempt to parse out the ssl mode before config parsing
+        // library currently does not support verify-ca nor verify-full and will error.
+        let mut uri = uri.to_string();
+        let mut accept_invalid_certs = true;
+        let mut accept_invalid_hostnames = true;
+
+        if uri.contains("sslmode=verify-ca") {
+            accept_invalid_certs = false;
+            // so the Config doesn't fail to parse.
+            uri = uri.replace("sslmode=verify-ca", "sslmode=required");
+        } else if uri.contains("sslmode=verify-full") {
+            accept_invalid_certs = false;
+            accept_invalid_hostnames = false;
+            // so the Config doesn't fail to parse.
+            uri = uri.replace("sslmode=verify-full", "sslmode=required");
+        }
+
+        let mut pg_config = PostgresConfig::from_str(&uri)?;
         if pg_config.get_connect_timeout().is_none() {
             pg_config.connect_timeout(Duration::from_secs(5));
         }
@@ -63,9 +84,41 @@ impl PgStore {
             pg_config.application_name("relay");
         }
 
+        let tls_config_defaults = rustls::ClientConfig::builder().with_safe_defaults();
+
+        let tls_config = if accept_invalid_certs {
+            tls_config_defaults
+                .with_custom_certificate_verifier(Arc::new(AcceptAllTlsVerifier))
+                .with_no_client_auth()
+        } else {
+            let mut cert_store = RootCertStore::empty();
+            cert_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(
+                |ta| {
+                    OwnedTrustAnchor::from_subject_spki_name_constraints(
+                        ta.subject,
+                        ta.spki,
+                        ta.name_constraints,
+                    )
+                },
+            ));
+
+            if accept_invalid_hostnames {
+                let verifier = WebPkiVerifier::new(cert_store, None);
+                tls_config_defaults
+                    .with_custom_certificate_verifier(Arc::new(NoHostnameTlsVerifier { verifier }))
+                    .with_no_client_auth()
+            } else {
+                tls_config_defaults
+                    .with_root_certificates(cert_store)
+                    .with_no_client_auth()
+            }
+        };
+
+        let tls = tokio_postgres_rustls::MakeRustlsConnect::new(tls_config);
+
         let mgr = Manager::from_config(
             pg_config,
-            NoTls,
+            tls,
             ManagerConfig {
                 recycling_method: RecyclingMethod::Fast,
             },
@@ -907,6 +960,54 @@ fn interval_seconds(interval: Interval) -> i32 {
     let micro_secs = (interval.microseconds / 1_000_000) as i32;
 
     month_secs + day_secs + micro_secs
+}
+
+struct AcceptAllTlsVerifier;
+
+impl ServerCertVerifier for AcceptAllTlsVerifier {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &Certificate,
+        _intermediates: &[Certificate],
+        _server_name: &ServerName,
+        _scts: &mut dyn Iterator<Item = &[u8]>,
+        _ocsp_response: &[u8],
+        _now: SystemTime,
+    ) -> std::result::Result<ServerCertVerified, rustls::Error> {
+        Ok(ServerCertVerified::assertion())
+    }
+}
+
+pub struct NoHostnameTlsVerifier {
+    verifier: WebPkiVerifier,
+}
+
+impl ServerCertVerifier for NoHostnameTlsVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &Certificate,
+        intermediates: &[Certificate],
+        server_name: &ServerName,
+        scts: &mut dyn Iterator<Item = &[u8]>,
+        ocsp_response: &[u8],
+        now: SystemTime,
+    ) -> std::result::Result<ServerCertVerified, rustls::Error> {
+        match self.verifier.verify_server_cert(
+            end_entity,
+            intermediates,
+            server_name,
+            scts,
+            ocsp_response,
+            now,
+        ) {
+            Err(rustls::Error::InvalidCertificateData(reason))
+                if reason.contains("CertNotValidForName") =>
+            {
+                Ok(ServerCertVerified::assertion())
+            }
+            res => res,
+        }
+    }
 }
 
 #[cfg(test)]
