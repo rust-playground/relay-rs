@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1] - 2023-03-21
+### Fixed
+- Added back TLS support accidentally removed in Tokio Postgres changeover.
+
 ## [0.12.0] - 2023-03-18
 ### Changed
 - SQLX -> Tokio Postgres + Deadpool. Better performance and allows for finer grained control.
@@ -113,7 +117,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Future Job support using new `run_at` Job field.
 - Reschedule endpoint allowing the Job Runner to manage a unique/singleton Job rescheduling itself.
 
-[Unreleased]: https://github.com/rust-playground/relay-rs/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/rust-playground/relay-rs/compare/v0.12.1...HEAD
+[0.12.1]: https://github.com/rust-playground/relay-rs/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/rust-playground/relay-rs/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/rust-playground/relay-rs/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/rust-playground/relay-rs/compare/v0.9.0...v0.10.0
