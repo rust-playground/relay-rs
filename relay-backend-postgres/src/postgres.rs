@@ -1000,8 +1000,8 @@ impl ServerCertVerifier for NoHostnameTlsVerifier {
             ocsp_response,
             now,
         ) {
-            Err(rustls::Error::InvalidCertificateData(reason))
-                if reason.contains("CertNotValidForName") =>
+            Err(rustls::Error::InvalidCertificate(cert_error))
+                if cert_error == rustls::CertificateError::NotValidForName =>
             {
                 Ok(ServerCertVerified::assertion())
             }
