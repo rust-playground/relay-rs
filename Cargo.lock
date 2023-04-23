@@ -1490,7 +1490,7 @@ checksum = "a5996294f19bd3aae0453a862ad728f60e6600695733dd5df01da90c54363a3c"
 
 [[package]]
 name = "relay"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1509,7 +1509,7 @@ dependencies = [
 
 [[package]]
 name = "relay-backend-postgres"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1542,7 +1542,7 @@ dependencies = [
 
 [[package]]
 name = "relay-frontend-http"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "async-channel",
