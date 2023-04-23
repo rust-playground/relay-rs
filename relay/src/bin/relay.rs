@@ -133,12 +133,12 @@ async fn shutdown_signal() {
     let mut quit = signal(SignalKind::quit()).expect("Expect shutdown signal");
 
     tokio::select! {
-        _ = interrupt.recv() => println!("Received SIGINT"),
-        _ = terminate.recv() => println!("Received SIGTERM"),
-        _ = hangup.recv() => println!("Received SIGHUP"),
-        _ = quit.recv() => println!("Received SIGQUIT"),
+        _ = interrupt.recv() => debug!("Received SIGINT"),
+        _ = terminate.recv() => debug!("Received SIGTERM"),
+        _ = hangup.recv() => debug!("Received SIGHUP"),
+        _ = quit.recv() => debug!("Received SIGQUIT"),
     }
-    println!("received shutdown signal");
+    info!("received shutdown signal");
 }
 
 /// Tokio signal handler that will wait for a user to press CTRL+C.

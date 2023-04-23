@@ -192,11 +192,12 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                           max_retries,
                           retries_remaining,
                           data,
+                          state,
                           updated_at,
                           created_at,
                           run_at
                         )
-                        VALUES ($1, $2, $3, $4, $4, $5, $6, $6, $7)"#,
+                        VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $7, $8)"#,
                 )
                 .await
                 .map_err(|e| Error::Backend {
@@ -213,6 +214,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                         &Interval::from_duration(chrono::Duration::seconds(i64::from(job.timeout))),
                         &job.max_retries,
                         &Json(&job.payload),
+                        &job.state.as_ref().map(|state| Some(Json(state))),
                         &now,
                         &run_at,
                     ],
@@ -252,11 +254,12 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                           max_retries,
                           retries_remaining,
                           data,
+                          state,
                           updated_at,
                           created_at,
                           run_at
                         )
-                        VALUES ($1, $2, $3, $4, $4, $5, $6, $6, $7)
+                        VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $7, $8)
                         ON CONFLICT DO NOTHING"#,
                 )
                 .await
@@ -284,6 +287,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                             ))),
                             &job.max_retries,
                             &Json(&job.payload),
+                            &job.state.as_ref().map(|state| Some(Json(state))),
                             &now,
                             &run_at,
                         ],
