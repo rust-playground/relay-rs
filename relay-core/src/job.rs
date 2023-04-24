@@ -25,9 +25,6 @@ pub struct Job<P, S> {
     pub payload: P,
 
     /// The raw JSON payload that the job runner will receive.
-    ///
-    /// This state will be ignored when enqueueing a Job and can only be set via a Heartbeat or
-    /// Reschedule request.
     pub state: Option<S>,
 
     /// With this you can optionally schedule/set a Job to be run only at a specific time in the
