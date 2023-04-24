@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2023-04-24
+### Added
+- Ability to set state upon Job creation.
+
+### Changed
+- Updated all dependencies to latest versions.
+- Signal shutdown now uses tracing logs.
+- Remove ansi lof printing.
+
 ## [0.12.1] - 2023-03-21
 ### Fixed
 - Added back TLS support accidentally removed in Tokio Postgres changeover.
@@ -117,7 +126,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Future Job support using new `run_at` Job field.
 - Reschedule endpoint allowing the Job Runner to manage a unique/singleton Job rescheduling itself.
 
-[Unreleased]: https://github.com/rust-playground/relay-rs/compare/v0.12.1...HEAD
+[Unreleased]: https://github.com/rust-playground/relay-rs/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/rust-playground/relay-rs/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/rust-playground/relay-rs/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/rust-playground/relay-rs/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/rust-playground/relay-rs/compare/v0.10.0...v0.11.0

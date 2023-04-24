@@ -47,7 +47,7 @@ pub struct Opts {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    match std::env::var("RUST_LOG") {
+    match env::var("RUST_LOG") {
         Err(_) => env::set_var("RUST_LOG", "info"),
         Ok(v) => {
             if v.trim() == "" {
