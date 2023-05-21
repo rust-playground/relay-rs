@@ -1,6 +1,6 @@
 [package]
 name = "relay-frontend-http"
-version = "0.7.0"
+version = "0.8.0"
 edition.workspace = true
 authors.workspace = true
 description.workspace = true
@@ -20,7 +20,7 @@ reqwest = { workspace = true, features = ["rustls-tls", "json"] }
 backoff-rs.workspace = true
 percent-encoding.workspace = true
 async-channel.workspace = true
-axum = { version = "0.6.16", default-features = false, features = ["http1", "http2", "json","matched-path","original-uri","query","tokio","tower-log"] }
+axum = { version = "0.6.18", default-features = false, features = ["http1", "http2", "json","matched-path","original-uri","query","tokio","tower-log"] }
 tower-http = { version = "0.4.0", features = ["trace"] }
 uuid = { workspace = true, features = ["v4"] }
 
