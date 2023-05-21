@@ -28,8 +28,8 @@ where
             queue: queue.to_string(),
             worker: Arc::new(worker),
             max_workers: 10,
-            _payload: PhantomData::default(),
-            _state: PhantomData::default(),
+            _payload: PhantomData,
+            _state: PhantomData,
         }
     }
 
@@ -53,8 +53,8 @@ where
             queue: self.queue,
             worker: self.worker,
             max_workers: self.max_workers,
-            _payload: PhantomData::default(),
-            _state: PhantomData::default(),
+            _payload: PhantomData,
+            _state: PhantomData,
         }
     }
 }
