@@ -1,6 +1,6 @@
 [package]
 name = "relay-backend-postgres"
-version = "0.8.0"
+version = "0.8.1"
 edition.workspace = true
 authors.workspace = true
 description.workspace = true
@@ -22,7 +22,7 @@ tokio-stream = "0.1.14"
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "time","macros"] }
 tokio-postgres-rustls = "0.10.0"
 rustls = { version = "0.21.1", default-features = false, features = ["tls12", "dangerous_configuration"] }
-webpki-roots = "0.23.0"
+webpki-roots = "0.23.1"
 
 [dev-dependencies]
 uuid = { workspace = true, features = ["v4"] }

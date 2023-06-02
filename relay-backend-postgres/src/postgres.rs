@@ -672,7 +672,6 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                     data = $5,
                     state = $6,
                     updated_at = $7,
-                    created_at = $7,
                     run_at = $8,
                     in_flight = false
                 WHERE
