@@ -25,10 +25,16 @@ use tokio_postgres::{Config as PostgresConfig, Row};
 use tokio_stream::{Stream, StreamExt};
 use tracing::{debug, warn};
 
-const MIGRATIONS: [Migration; 1] = [Migration::new(
-    "1678464484380_initialize.sql",
-    include_str!("../migrations/1678464484380_initialize.sql"),
-)];
+const MIGRATIONS: [Migration; 2] = [
+    Migration::new(
+        "1678464484380_initialize.sql",
+        include_str!("../migrations/1678464484380_initialize.sql"),
+    ),
+    Migration::new(
+        "1695506628848_bytea.sql",
+        include_str!("../migrations/1695506628848_bytea.sql"),
+    ),
+];
 
 /// `RawJob` represents a Relay Job for the Postgres backend.
 type RawJob = Job<Box<RawValue>, Box<RawValue>>;
