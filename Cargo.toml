@@ -1,4 +1,5 @@
 [workspace]
+resolver = "2"
 
 members = [
     "relay",
@@ -12,25 +13,26 @@ edition = "2021"
 authors = ["Dean Karn"]
 description = "A no nonsense, horizontally scalable, ordered job runner backed by Postgres"
 
+
 [workspace.dependencies]
 clap = "4"
-tokio = { version = "1.29.1", default-features =  false }
-anyhow = "1.0.72"
-thiserror = "1.0.44"
-serde = { version = "1.0.180" }
-serde_json = { version = "1.0.104" }
+tokio = { version = "1.32.0", default-features =  false }
+anyhow = "1.0.75"
+thiserror = "1.0.48"
+serde = { version = "1.0.188" }
+serde_json = { version = "1.0.107" }
 tracing = "0.1.37"
 uuid = { version = "1.4.1" }
-chrono = "0.4.26"
+chrono = "0.4.31"
 backoff-rs = "0.1.0"
-reqwest = { version = "0.11.18" }
+reqwest = { version = "0.11.20" }
 metrics = "0.21.1"
 percent-encoding = "2.3.0"
 async-channel = "1.9.0"
-async-trait = "0.1.72"
+async-trait = "0.1.73"
 anydate = "0.3.0"
 metrics-util = "0.15.1"
-log = "0.4.19"
+log = "0.4.20"
 relay-core = { version = "*", path="./relay-core" }
 
 [profile.release]

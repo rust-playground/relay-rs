@@ -20,8 +20,8 @@ reqwest = { workspace = true, features = ["rustls-tls", "json"] }
 backoff-rs.workspace = true
 percent-encoding.workspace = true
 async-channel.workspace = true
-axum = { version = "0.6.19", default-features = false, features = ["http1", "http2", "json","matched-path","original-uri","query","tokio","tower-log"] }
-tower-http = { version = "0.4.3", features = ["trace"] }
+axum = { version = "0.6.20", default-features = false, features = ["http1", "http2", "json","matched-path","original-uri","query","tokio","tower-log"] }
+tower-http = { version = "0.4.4", features = ["trace"] }
 uuid = { workspace = true, features = ["v4"] }
 
 
