@@ -1,6 +1,6 @@
 [package]
 name = "relay-backend-postgres"
-version = "0.8.1"
+version = "0.9.0"
 edition.workspace = true
 authors.workspace = true
 description.workspace = true
@@ -12,7 +12,6 @@ relay-core.workspace = true
 tracing.workspace = true
 metrics.workspace = true
 chrono.workspace = true
-serde_json = { workspace = true, features = ["raw_value"] }
 async-trait.workspace = true
 tokio-postgres = { version = "0.7.10", features = ["with-chrono-0_4", "with-serde_json-1", "with-uuid-1"] }
 deadpool-postgres = "0.10.5"

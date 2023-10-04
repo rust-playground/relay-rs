@@ -6,8 +6,8 @@ use axum::routing::{delete, get, head, patch, post, put};
 use axum::{Json, Router};
 use metrics::increment_counter;
 use relay_core::{Backend, Error, Job};
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,83 +18,132 @@ use uuid::Uuid;
 /// The internal HTTP server representation for Jobs.
 pub struct Server;
 
-#[tracing::instrument(name = "http_get", level = "debug", skip_all)]
-async fn get_job<BE, T>(
-    State(state): State<Arc<BE>>,
-    Path((queue, id)): Path<(String, String)>,
-) -> Response
-where
-    T: Serialize,
-    BE: Backend<T, T>,
-{
-    increment_counter!("http_request", "endpoint" => "get", "queue" => queue.clone());
+// #[tracing::instrument(name = "http_get", level = "debug", skip_all)]
+// async fn get_job<BE, T>(
+//     State(state): State<Arc<BE>>,
+//     Path((queue, id)): Path<(String, String)>,
+// ) -> Response
+// where
+//     T: Serialize + Into<Bytes>,
+//     BE: Backend<T, T>,
+// {
+//     increment_counter!("http_request", "endpoint" => "get", "queue" => queue.clone());
+//
+//     match state.get(&queue, &id).await {
+//         Ok(job) => {
+//             if let Some(job) = job {
+//                 Json(job).into_response()
+//             } else {
+//                 StatusCode::NOT_FOUND.into_response()
+//             }
+//         }
+//         Err(e) => {
+//             increment_counter!("errors", "endpoint" => "get", "type" => e.error_type(), "queue" => e.queue());
+//             match e {
+//                 Error::Backend { .. } => {
+//                     if e.is_retryable() {
+//                         (StatusCode::TOO_MANY_REQUESTS, e.to_string()).into_response()
+//                     } else {
+//                         (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response()
+//                     }
+//                 }
+//                 _ => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+//             }
+//         }
+//     }
+// }
+//
+// #[tracing::instrument(name = "http_exists", level = "debug", skip_all)]
+// async fn exists<BE, T>(
+//     State(state): State<Arc<BE>>,
+//     Path((queue, id)): Path<(String, String)>,
+// ) -> Response
+// where
+//     BE: Backend<T, T>,
+// {
+//     increment_counter!("http_request", "endpoint" => "exists", "queue" => queue.clone());
+//
+//     match state.exists(&queue, &id).await {
+//         Ok(exists) => {
+//             if exists {
+//                 StatusCode::OK.into_response()
+//             } else {
+//                 StatusCode::NOT_FOUND.into_response()
+//             }
+//         }
+//         Err(e) => {
+//             increment_counter!("errors", "endpoint" => "exists", "type" => e.error_type(), "queue" => e.queue());
+//             match e {
+//                 Error::Backend { .. } => {
+//                     if e.is_retryable() {
+//                         (StatusCode::TOO_MANY_REQUESTS, e.to_string()).into_response()
+//                     } else {
+//                         (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response()
+//                     }
+//                 }
+//                 _ => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+//             }
+//         }
+//     }
+// }
 
-    match state.get(&queue, &id).await {
-        Ok(job) => {
-            if let Some(job) = job {
-                Json(job).into_response()
-            } else {
-                StatusCode::NOT_FOUND.into_response()
-            }
-        }
-        Err(e) => {
-            increment_counter!("errors", "endpoint" => "get", "type" => e.error_type(), "queue" => e.queue());
-            match e {
-                Error::Backend { .. } => {
-                    if e.is_retryable() {
-                        (StatusCode::TOO_MANY_REQUESTS, e.to_string()).into_response()
-                    } else {
-                        (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response()
-                    }
-                }
-                _ => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
-            }
-        }
-    }
-}
+// type RawJob = Job<Box<RawValue>, Box<RawValue>>;
+//
+// type PGJob = Job<Vec<u8>, Vec<u8>>;
+//
+// impl From<Vec<RawJob>> for Vec<PGJob> {
+//     fn from(value: Vec<Job<Box<RawValue>, Box<RawValue>>>) -> Self {
+//         todo!()
+//     }
+// }
 
-#[tracing::instrument(name = "http_exists", level = "debug", skip_all)]
-async fn exists<BE, T>(
-    State(state): State<Arc<BE>>,
-    Path((queue, id)): Path<(String, String)>,
-) -> Response
-where
-    BE: Backend<T, T>,
-{
-    increment_counter!("http_request", "endpoint" => "exists", "queue" => queue.clone());
+#[derive(Deserialize)]
+struct Jobs(Vec<Job<Box<RawValue>, Box<RawValue>>>);
 
-    match state.exists(&queue, &id).await {
-        Ok(exists) => {
-            if exists {
-                StatusCode::OK.into_response()
-            } else {
-                StatusCode::NOT_FOUND.into_response()
-            }
-        }
-        Err(e) => {
-            increment_counter!("errors", "endpoint" => "exists", "type" => e.error_type(), "queue" => e.queue());
-            match e {
-                Error::Backend { .. } => {
-                    if e.is_retryable() {
-                        (StatusCode::TOO_MANY_REQUESTS, e.to_string()).into_response()
-                    } else {
-                        (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response()
-                    }
-                }
-                _ => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
-            }
-        }
+impl From<Jobs> for Vec<Job<Vec<u8>, Vec<u8>>> {
+    fn from(value: Jobs) -> Self {
+        value
+            .0
+            .into_iter()
+            .map(|j| Job {
+                id: j.id,
+                queue: j.queue,
+                timeout: j.timeout,
+                max_retries: j.max_retries,
+                payload: j.payload.get().as_bytes().to_vec(),
+                state: j.state.map(|s| s.get().as_bytes().to_vec()),
+                run_at: j.run_at,
+                updated_at: j.updated_at,
+            })
+            .collect()
     }
 }
 
 #[tracing::instrument(name = "http_enqueue", level = "debug", skip_all)]
-async fn enqueue<BE, T>(State(state): State<Arc<BE>>, jobs: Json<Vec<Job<T, T>>>) -> Response
+async fn enqueue<BE>(State(state): State<Arc<BE>>, jobs: Json<Jobs>) -> Response
 where
-    BE: Backend<T, T>,
+    BE: Backend<Vec<u8>, Vec<u8>>,
 {
     increment_counter!("http_request", "endpoint" => "enqueue");
 
-    if let Err(e) = state.enqueue(&jobs.0).await {
+    let input: Vec<Job<Vec<u8>, Vec<u8>>> = jobs.0.into();
+    // let input: Vec<Job<Vec<u8>, Vec<u8>>> = jobs
+    //     .0
+    //      .0
+    //     .into_iter()
+    //     .map(|j| Job {
+    //         id: j.id,
+    //         queue: j.queue,
+    //         timeout: j.timeout,
+    //         max_retries: j.max_retries,
+    //         payload: j.payload.get().as_bytes().to_vec(),
+    //         state: j.state.map(|s| s.get().as_bytes().to_vec()),
+    //         run_at: j.run_at,
+    //         updated_at: j.updated_at,
+    //     })
+    //     .collect();
+
+    if let Err(e) = state.enqueue(&input).await {
         increment_counter!("errors", "endpoint" => "enqueue", "type" => e.error_type());
         match e {
             Error::Backend { .. } => {
@@ -114,140 +163,140 @@ where
     }
 }
 
-#[derive(Deserialize)]
-struct NextQueryInfo {
-    #[serde(default = "default_num_jobs")]
-    num_jobs: u32,
-}
-
-const fn default_num_jobs() -> u32 {
-    1
-}
-
-#[tracing::instrument(name = "http_next", level = "debug", skip_all)]
-async fn next<BE, T>(
-    State(state): State<Arc<BE>>,
-    Path(queue): Path<String>,
-    params: Query<NextQueryInfo>,
-) -> Response
-where
-    T: Serialize,
-    BE: Backend<T, T>,
-{
-    increment_counter!("http_request", "endpoint" => "next", "queue" => queue.clone());
-
-    match state.next(&queue, params.num_jobs).await {
-        Err(e) => {
-            increment_counter!("errors", "endpoint" => "next", "type" => e.error_type(), "queue" => e.queue());
-            if let Error::Backend { .. } = e {
-                if e.is_retryable() {
-                    (StatusCode::TOO_MANY_REQUESTS, e.to_string()).into_response()
-                } else {
-                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-                }
-            } else {
-                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-            }
-        }
-        Ok(job) => match job {
-            None => StatusCode::NO_CONTENT.into_response(),
-            Some(job) => (StatusCode::OK, Json(job)).into_response(),
-        },
-    }
-}
-
-#[tracing::instrument(name = "http_heartbeat", level = "debug", skip_all)]
-async fn heartbeat<BE, T>(
-    State(state): State<Arc<BE>>,
-    Path((queue, id)): Path<(String, String)>,
-    job_state: Option<Json<T>>,
-) -> Response
-where
-    T: DeserializeOwned,
-    BE: Backend<T, T>,
-{
-    increment_counter!("http_request", "endpoint" => "heartbeat", "queue" => queue.clone());
-
-    let job_state = match job_state {
-        None => None,
-        Some(job_state) => Some(job_state.0),
-    };
-    if let Err(e) = state.heartbeat(&queue, &id, job_state).await {
-        increment_counter!("errors", "endpoint" => "heartbeat", "type" => e.error_type(), "queue" => e.queue());
-        match e {
-            Error::JobNotFound { .. } => (StatusCode::NOT_FOUND, e.to_string()).into_response(),
-            Error::Backend { .. } => {
-                if e.is_retryable() {
-                    (StatusCode::TOO_MANY_REQUESTS, e.to_string()).into_response()
-                } else {
-                    (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response()
-                }
-            }
-            Error::JobExists { .. } => {
-                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-            }
-        }
-    } else {
-        StatusCode::ACCEPTED.into_response()
-    }
-}
-
-#[tracing::instrument(name = "http_reschedule", level = "debug", skip_all)]
-async fn reschedule<BE, T>(State(state): State<Arc<BE>>, job: Json<Job<T, T>>) -> Response
-where
-    BE: Backend<T, T>,
-{
-    increment_counter!("http_request", "endpoint" => "reschedule", "queue" => job.0.queue.clone());
-
-    if let Err(e) = state.reschedule(&job.0).await {
-        increment_counter!("errors", "endpoint" => "enqueued", "type" => e.error_type(), "queue" => e.queue());
-        match e {
-            Error::JobExists { .. } => {
-                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-            }
-            Error::Backend { .. } => {
-                if e.is_retryable() {
-                    (StatusCode::TOO_MANY_REQUESTS, e.to_string()).into_response()
-                } else {
-                    (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response()
-                }
-            }
-            Error::JobNotFound { .. } => (StatusCode::NOT_FOUND, e.to_string()).into_response(),
-        }
-    } else {
-        StatusCode::ACCEPTED.into_response()
-    }
-}
-
-#[tracing::instrument(name = "http_delete", level = "debug", skip_all)]
-async fn delete_job<BE, T>(
-    State(state): State<Arc<BE>>,
-    Path((queue, id)): Path<(String, String)>,
-) -> Response
-where
-    BE: Backend<T, T>,
-{
-    increment_counter!("http_request", "endpoint" => "delete", "queue" => queue.clone());
-
-    if let Err(e) = state.delete(&queue, &id).await {
-        increment_counter!("errors", "endpoint" => "delete", "type" => e.error_type(), "queue" => e.queue());
-        match e {
-            Error::JobNotFound { .. } => (StatusCode::NOT_FOUND, e.to_string()).into_response(),
-            Error::Backend { .. } => {
-                if e.is_retryable() {
-                    (StatusCode::TOO_MANY_REQUESTS, e.to_string()).into_response()
-                } else {
-                    (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response()
-                }
-            }
-            Error::JobExists { .. } => {
-                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-            }
-        }
-    } else {
-        StatusCode::OK.into_response()
-    }
-}
+// #[derive(Deserialize)]
+// struct NextQueryInfo {
+//     #[serde(default = "default_num_jobs")]
+//     num_jobs: u32,
+// }
+//
+// const fn default_num_jobs() -> u32 {
+//     1
+// }
+//
+// #[tracing::instrument(name = "http_next", level = "debug", skip_all)]
+// async fn next<BE, T>(
+//     State(state): State<Arc<BE>>,
+//     Path(queue): Path<String>,
+//     params: Query<NextQueryInfo>,
+// ) -> Response
+// where
+//     T: Serialize,
+//     BE: Backend<T, T>,
+// {
+//     increment_counter!("http_request", "endpoint" => "next", "queue" => queue.clone());
+//
+//     match state.next(&queue, params.num_jobs).await {
+//         Err(e) => {
+//             increment_counter!("errors", "endpoint" => "next", "type" => e.error_type(), "queue" => e.queue());
+//             if let Error::Backend { .. } = e {
+//                 if e.is_retryable() {
+//                     (StatusCode::TOO_MANY_REQUESTS, e.to_string()).into_response()
+//                 } else {
+//                     (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+//                 }
+//             } else {
+//                 (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+//             }
+//         }
+//         Ok(job) => match job {
+//             None => StatusCode::NO_CONTENT.into_response(),
+//             Some(job) => (StatusCode::OK, Json(job)).into_response(),
+//         },
+//     }
+// }
+//
+// #[tracing::instrument(name = "http_heartbeat", level = "debug", skip_all)]
+// async fn heartbeat<BE, T>(
+//     State(state): State<Arc<BE>>,
+//     Path((queue, id)): Path<(String, String)>,
+//     job_state: Option<Json<T>>,
+// ) -> Response
+// where
+//     T: DeserializeOwned,
+//     BE: Backend<T, T>,
+// {
+//     increment_counter!("http_request", "endpoint" => "heartbeat", "queue" => queue.clone());
+//
+//     let job_state = match job_state {
+//         None => None,
+//         Some(job_state) => Some(job_state.0),
+//     };
+//     if let Err(e) = state.heartbeat(&queue, &id, job_state).await {
+//         increment_counter!("errors", "endpoint" => "heartbeat", "type" => e.error_type(), "queue" => e.queue());
+//         match e {
+//             Error::JobNotFound { .. } => (StatusCode::NOT_FOUND, e.to_string()).into_response(),
+//             Error::Backend { .. } => {
+//                 if e.is_retryable() {
+//                     (StatusCode::TOO_MANY_REQUESTS, e.to_string()).into_response()
+//                 } else {
+//                     (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response()
+//                 }
+//             }
+//             Error::JobExists { .. } => {
+//                 (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+//             }
+//         }
+//     } else {
+//         StatusCode::ACCEPTED.into_response()
+//     }
+// }
+//
+// #[tracing::instrument(name = "http_reschedule", level = "debug", skip_all)]
+// async fn reschedule<BE, T>(State(state): State<Arc<BE>>, job: Json<Job<T, T>>) -> Response
+// where
+//     BE: Backend<T, T>,
+// {
+//     increment_counter!("http_request", "endpoint" => "reschedule", "queue" => job.0.queue.clone());
+//
+//     if let Err(e) = state.reschedule(&job.0).await {
+//         increment_counter!("errors", "endpoint" => "enqueued", "type" => e.error_type(), "queue" => e.queue());
+//         match e {
+//             Error::JobExists { .. } => {
+//                 (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+//             }
+//             Error::Backend { .. } => {
+//                 if e.is_retryable() {
+//                     (StatusCode::TOO_MANY_REQUESTS, e.to_string()).into_response()
+//                 } else {
+//                     (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response()
+//                 }
+//             }
+//             Error::JobNotFound { .. } => (StatusCode::NOT_FOUND, e.to_string()).into_response(),
+//         }
+//     } else {
+//         StatusCode::ACCEPTED.into_response()
+//     }
+// }
+//
+// #[tracing::instrument(name = "http_delete", level = "debug", skip_all)]
+// async fn delete_job<BE, T>(
+//     State(state): State<Arc<BE>>,
+//     Path((queue, id)): Path<(String, String)>,
+// ) -> Response
+// where
+//     BE: Backend<T, T>,
+// {
+//     increment_counter!("http_request", "endpoint" => "delete", "queue" => queue.clone());
+//
+//     if let Err(e) = state.delete(&queue, &id).await {
+//         increment_counter!("errors", "endpoint" => "delete", "type" => e.error_type(), "queue" => e.queue());
+//         match e {
+//             Error::JobNotFound { .. } => (StatusCode::NOT_FOUND, e.to_string()).into_response(),
+//             Error::Backend { .. } => {
+//                 if e.is_retryable() {
+//                     (StatusCode::TOO_MANY_REQUESTS, e.to_string()).into_response()
+//                 } else {
+//                     (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response()
+//                 }
+//             }
+//             Error::JobExists { .. } => {
+//                 (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+//             }
+//         }
+//     } else {
+//         StatusCode::OK.into_response()
+//     }
+// }
 
 #[allow(clippy::unused_async)]
 async fn health() {}
@@ -264,10 +313,9 @@ impl Server {
     /// Will panic the reaper async thread fails, which can only happen if the timer and channel
     /// both die.
     #[inline]
-    pub async fn run<BE, T, F>(backend: Arc<BE>, addr: &str, shutdown: F) -> anyhow::Result<()>
+    pub async fn run<BE, F>(backend: Arc<BE>, addr: &str, shutdown: F) -> anyhow::Result<()>
     where
-        T: Serialize + DeserializeOwned + Send + Sync + 'static,
-        BE: Backend<T, T> + Send + Sync + 'static,
+        BE: Backend<Vec<u8>, Vec<u8>> + Send + Sync + 'static,
         F: Future<Output = ()>,
     {
         let app = Server::init_app(backend);
@@ -280,19 +328,18 @@ impl Server {
         Ok(())
     }
 
-    pub(crate) fn init_app<BE, T>(backend: Arc<BE>) -> Router
+    pub(crate) fn init_app<BE>(backend: Arc<BE>) -> Router
     where
-        T: Serialize + DeserializeOwned + Send + Sync + 'static,
-        BE: Backend<T, T> + Send + Sync + 'static,
+        BE: Backend<Vec<u8>, Vec<u8>> + Send + Sync + 'static,
     {
         Router::new()
             .route("/v1/queues/jobs", post(enqueue))
-            .route("/v1/queues/jobs", put(reschedule))
-            .route("/v1/queues/:queue/jobs", get(next))
-            .route("/v1/queues/:queue/jobs/:id", head(exists))
-            .route("/v1/queues/:queue/jobs/:id", get(get_job))
-            .route("/v1/queues/:queue/jobs/:id", patch(heartbeat))
-            .route("/v1/queues/:queue/jobs/:id", delete(delete_job))
+            // .route("/v1/queues/jobs", put(reschedule))
+            // .route("/v1/queues/:queue/jobs", get(next))
+            // .route("/v1/queues/:queue/jobs/:id", head(exists))
+            // .route("/v1/queues/:queue/jobs/:id", get(get_job))
+            // .route("/v1/queues/:queue/jobs/:id", patch(heartbeat))
+            // .route("/v1/queues/:queue/jobs/:id", delete(delete_job))
             .route("/health", get(health))
             .layer(
                 TraceLayer::new_for_http()

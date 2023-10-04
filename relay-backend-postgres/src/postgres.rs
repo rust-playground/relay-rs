@@ -8,10 +8,9 @@ use deadpool_postgres::{
 };
 use metrics::{counter, histogram, increment_counter};
 use pg_interval::Interval;
-use relay_core::{Backend, Error, Job, Result};
+use relay_core::{Backend, Error, Job as CoreJob, Result};
 use rustls::client::{ServerCertVerified, ServerCertVerifier, WebPkiVerifier};
 use rustls::{Certificate, OwnedTrustAnchor, RootCertStore, ServerName};
-use serde_json::value::RawValue;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::io;
@@ -36,8 +35,8 @@ const MIGRATIONS: [Migration; 2] = [
     ),
 ];
 
-/// `RawJob` represents a Relay Job for the Postgres backend.
-type RawJob = Job<Box<RawValue>, Box<RawValue>>;
+/// Is the Postgres backend Job type.
+pub type Job = CoreJob<Vec<u8>, Vec<u8>>;
 
 /// Postgres backing store
 pub struct PgStore {
@@ -159,7 +158,7 @@ impl PgStore {
 }
 
 #[async_trait]
-impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
+impl Backend<Vec<u8>, Vec<u8>> for PgStore {
     /// Creates a batch of Jobs to be processed in a single write transaction.
     ///
     /// NOTES: If the number of jobs passed is '1' then those will return a `JobExists` error
@@ -172,7 +171,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     #[tracing::instrument(name = "pg_enqueue", level = "debug", skip_all, fields(jobs = jobs.len()))]
-    async fn enqueue(&self, jobs: &[RawJob]) -> Result<()> {
+    async fn enqueue(&self, jobs: &[Job]) -> Result<()> {
         if jobs.len() == 1 {
             let job = jobs.first().unwrap();
             let now = Utc::now().naive_utc();
@@ -217,8 +216,8 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                         &job.queue,
                         &Interval::from_duration(chrono::Duration::seconds(i64::from(job.timeout))),
                         &job.max_retries,
-                        &Json(&job.payload),
-                        &job.state.as_ref().map(|state| Some(Json(state))),
+                        &job.payload.as_slice(),
+                        &job.state.as_ref().map(|state| Some(state.as_slice())),
                         &now,
                         &run_at,
                     ],
@@ -290,8 +289,8 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                                 job.timeout,
                             ))),
                             &job.max_retries,
-                            &Json(&job.payload),
-                            &job.state.as_ref().map(|state| Some(Json(state))),
+                            &job.payload.as_slice(),
+                            &job.state.as_ref().map(|state| Some(state.as_slice())),
                             &now,
                             &run_at,
                         ],
@@ -331,7 +330,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     #[tracing::instrument(name = "pg_get", level = "debug", skip_all, fields(job_id=%job_id, queue=%queue))]
-    async fn get(&self, queue: &str, job_id: &str) -> Result<Option<RawJob>> {
+    async fn get(&self, queue: &str, job_id: &str) -> Result<Option<Job>> {
         let client = self.pool.get().await.map_err(|e| Error::Backend {
             message: e.to_string(),
             is_retryable: is_retryable_pool(e),
@@ -429,12 +428,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
     /// Will return `Err` if there is any communication issues with the backend Postgres DB or the
     /// Job attempting to be updated cannot be found.
     #[tracing::instrument(name = "pg_heartbeat", level = "debug", skip_all, fields(job_id=%job_id, queue=%queue))]
-    async fn heartbeat(
-        &self,
-        queue: &str,
-        job_id: &str,
-        state: Option<Box<RawValue>>,
-    ) -> Result<()> {
+    async fn heartbeat(&self, queue: &str, job_id: &str, state: Option<Vec<u8>>) -> Result<()> {
         let client = self.pool.get().await.map_err(|e| Error::Backend {
             message: e.to_string(),
             is_retryable: is_retryable_pool(e),
@@ -538,7 +532,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     #[tracing::instrument(name = "pg_next", level = "debug", skip_all, fields(num_jobs=num_jobs, queue=%queue))]
-    async fn next(&self, queue: &str, num_jobs: u32) -> Result<Option<Vec<RawJob>>> {
+    async fn next(&self, queue: &str, num_jobs: u32) -> Result<Option<Vec<Job>>> {
         let client = self.pool.get().await.map_err(|e| Error::Backend {
             message: e.to_string(),
             is_retryable: is_retryable_pool(e),
@@ -652,7 +646,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
     ///
     /// Will return `Err` if there is any communication issues with the backend Postgres DB.
     #[tracing::instrument(name = "pg_reschedule", level = "debug", skip_all, fields(job_id=%job.id, queue=%job.queue))]
-    async fn reschedule(&self, job: &RawJob) -> Result<()> {
+    async fn reschedule(&self, job: &Job) -> Result<()> {
         let now = Utc::now().naive_utc();
         let run_at = if let Some(run_at) = job.run_at {
             run_at.naive_utc()
@@ -700,7 +694,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                     &Interval::from_duration(chrono::Duration::seconds(i64::from(job.timeout))),
                     &job.max_retries,
                     &Json(&job.payload),
-                    &job.state.as_ref().map(|state| Some(Json(state))),
+                    &job.state.as_ref().map(|state| Some(state.as_slice())),
                     &now,
                     &run_at,
                 ],
@@ -944,18 +938,14 @@ fn is_retryable_pool(e: PoolError) -> bool {
 }
 
 #[inline]
-fn row_to_job(row: &Row) -> RawJob {
-    RawJob {
+fn row_to_job(row: &Row) -> Job {
+    Job {
         id: row.get(0),
         queue: row.get(1),
         timeout: interval_seconds(row.get::<usize, Interval>(2)),
         max_retries: row.get(3),
-        payload: row.get::<usize, Json<Box<RawValue>>>(4).0,
-        state: row
-            .get::<usize, Option<Json<Box<RawValue>>>>(5)
-            .map(|state| match state {
-                Json(state) => state,
-            }),
+        payload: row.get(4),
+        state: row.get(5),
         run_at: Some(Utc.from_utc_datetime(&row.get(6))),
         updated_at: Some(Utc.from_utc_datetime(&row.get(7))),
     }

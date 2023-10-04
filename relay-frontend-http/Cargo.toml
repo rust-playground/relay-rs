@@ -1,6 +1,6 @@
 [package]
 name = "relay-frontend-http"
-version = "0.8.0"
+version = "0.9.0"
 edition.workspace = true
 authors.workspace = true
 description.workspace = true
@@ -12,10 +12,10 @@ relay-core.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["time", "macros","signal"] }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["raw_value"] }
 tracing.workspace = true
 metrics.workspace = true
-serde = { workspace = true, features = ["derive"] }
 reqwest = { workspace = true, features = ["rustls-tls", "json"] }
 backoff-rs.workspace = true
 percent-encoding.workspace = true

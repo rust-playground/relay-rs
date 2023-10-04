@@ -1,6 +1,7 @@
 use anydate::serde::deserialize::anydate_utc_option;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 
 /// Job defines all information needed to process a job.
 #[derive(Default, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]

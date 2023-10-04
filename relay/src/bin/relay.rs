@@ -2,7 +2,6 @@
 use anyhow::Context;
 use clap::Parser;
 use relay_core::Backend;
-use serde_json::value::RawValue;
 use std::env;
 use std::sync::Arc;
 use std::time::Duration;
@@ -119,7 +118,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 #[cfg(feature = "backend-postgres")]
-async fn init_postgres(opts: &Opts) -> anyhow::Result<impl Backend<Box<RawValue>, Box<RawValue>>> {
+async fn init_postgres(opts: &Opts) -> anyhow::Result<impl Backend<Vec<u8>, Vec<u8>>> {
     relay_backend_postgres::PgStore::new(&opts.database_url, opts.database_max_connections).await
 }
 
