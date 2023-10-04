@@ -3,8 +3,8 @@ use crate::migrations::{run_migrations, Migration};
 use async_trait::async_trait;
 use chrono::{TimeZone, Utc};
 use deadpool_postgres::{
-    ClientWrapper, GenericClient, Hook, HookError, HookErrorCause, Manager, ManagerConfig, Pool,
-    PoolError, RecyclingMethod,
+    ClientWrapper, GenericClient, Hook, HookError, Manager, ManagerConfig, Pool, PoolError,
+    RecyclingMethod,
 };
 use metrics::{counter, histogram, increment_counter};
 use pg_interval::Interval;
@@ -133,7 +133,7 @@ impl PgStore {
                     client
                         .simple_query("SET default_transaction_isolation TO 'read committed'")
                         .await
-                        .map_err(|e| HookError::Abort(HookErrorCause::Backend(e)))?;
+                        .map_err(|e| HookError::Backend(e))?;
                     Ok(())
                 })
             }))
@@ -921,17 +921,9 @@ fn is_retryable_pool(e: PoolError) -> bool {
     match e {
         PoolError::Timeout(_) => true,
         PoolError::Backend(e) => is_retryable(e),
-        PoolError::PreRecycleHook(e)
-        | PoolError::PostCreateHook(e)
-        | PoolError::PostRecycleHook(e) => match e {
-            HookError::Continue(e) => match e {
-                Some(HookErrorCause::Backend(e)) => is_retryable(e),
-                _ => true,
-            },
-            HookError::Abort(e) => match e {
-                HookErrorCause::Backend(e) => is_retryable(e),
-                _ => true,
-            },
+        PoolError::PostCreateHook(e) => match e {
+            HookError::Backend(e) => is_retryable(e),
+            _ => false,
         },
         PoolError::Closed | PoolError::NoRuntimeSpecified => false,
     }
