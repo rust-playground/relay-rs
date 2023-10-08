@@ -1,4 +1,4 @@
 mod migrations;
 mod postgres;
 
-pub use postgres::PgStore;
+pub use postgres::{EnqueueMode, NewJob, PgStore};

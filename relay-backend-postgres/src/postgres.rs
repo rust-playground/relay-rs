@@ -1,7 +1,7 @@
 #![allow(clippy::cast_possible_truncation)]
 use crate::migrations::{run_migrations, Migration};
 use async_trait::async_trait;
-use chrono::{TimeZone, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use deadpool_postgres::{
     ClientWrapper, GenericClient, Hook, HookError, Manager, ManagerConfig, Pool, PoolError,
     RecyclingMethod,
@@ -24,6 +24,7 @@ use tokio_postgres::{Config as PostgresConfig, Row};
 use tokio_stream::{Stream, StreamExt};
 use tracing::{debug, warn};
 
+// TODO: Update column `data` -> `payload` to keep terminology consistent..
 const MIGRATIONS: [Migration; 2] = [
     Migration::new(
         "1678464484380_initialize.sql",
@@ -37,6 +38,44 @@ const MIGRATIONS: [Migration; 2] = [
 
 /// Is the Postgres backend Job type.
 pub type Job = CoreJob<Vec<u8>, Vec<u8>>;
+
+/// This is a custom enqueue mode that determines the behaviour of the enqueue function.
+pub enum EnqueueMode {
+    /// This ensures the Job is unique by Job ID and will return an error id any Job already exists.
+    Unique,
+    /// This will silently do nothing if the Job that already exists.
+    Ignore,
+    /// This will replace the existing Job with the new Job changing the job to be immediately no longer in-flight.
+    Replace,
+}
+
+pub struct NewJob<'a> {
+    /// The unique Job ID which is also CAN be used to ensure the Job is a singleton.
+    pub id: &'a str,
+
+    /// Is used to differentiate different job types that can be picked up by job runners.
+    pub queue: &'a str,
+
+    /// Denotes the duration, in seconds, after a Job has started processing or since the last
+    /// heartbeat request occurred before considering the Job failed and being put back into the
+    /// queue.
+    pub timeout: i32,
+
+    /// Determines how many times the Job can be retried, due to timeouts, before being considered
+    /// permanently failed. Infinite retries are supported by using a negative number eg. -1
+    pub max_retries: Option<i32>,
+
+    /// The raw JSON payload that the job runner will receive.
+    pub payload: &'a [u8],
+
+    /// The raw JSON payload that the job runner will receive.
+    pub state: Option<&'a [u8]>,
+
+    /// With this you can optionally schedule/set a Job to be run only at a specific time in the
+    /// future. This option should mainly be used for one-time jobs and scheduled jobs that have
+    /// the option of being self-perpetuated in combination with the reschedule endpoint.
+    pub run_at: Option<DateTime<Utc>>,
+}
 
 /// Postgres backing store
 pub struct PgStore {
@@ -154,6 +193,165 @@ impl PgStore {
             run_migrations("_relay_rs_migrations", &mut client, &MIGRATIONS).await?;
         }
         Ok(Self { pool })
+    }
+
+    /// Creates a batch of Jobs to be processed in a single write transaction.
+    ///
+    /// NOTES: If the number of jobs passed is '1' then those will return a `JobExists` error
+    ///        identifying the job as already existing.
+    ///        If there are more than one jobs this function will not return an error for conflicts
+    ///        in Job ID, but rather silently drop the record using an `ON CONFLICT DO NOTHING`.
+    ///        If you need to have a Conflict error returned pass a single Job instead.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if there is any communication issues with the backend Postgres DB.
+    #[tracing::instrument(name = "pg_enqueue", level = "debug", skip_all, fields(jobs = jobs.len()))]
+    pub async fn enqueue_new<'a>(&self, mode: EnqueueMode, jobs: &[NewJob<'a>]) -> Result<()> {
+        let mut client = self.pool.get().await.map_err(|e| Error::Backend {
+            message: e.to_string(),
+            is_retryable: is_retryable_pool(e),
+        })?;
+
+        let transaction = client.transaction().await.map_err(|e| Error::Backend {
+            message: e.to_string(),
+            is_retryable: is_retryable(e),
+        })?;
+
+        let stmt = match mode {
+            EnqueueMode::Unique => transaction
+                .prepare_cached(
+                    r#"INSERT INTO jobs (
+                          id,
+                          queue,
+                          timeout,
+                          max_retries,
+                          retries_remaining,
+                          data,
+                          state,
+                          updated_at,
+                          created_at,
+                          run_at
+                        )
+                        VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $7, $8)"#,
+                )
+                .await
+                .map_err(|e| Error::Backend {
+                    message: e.to_string(),
+                    is_retryable: is_retryable(e),
+                })?,
+            EnqueueMode::Ignore => transaction
+                .prepare_cached(
+                    r#"INSERT INTO jobs (
+                          id,
+                          queue,
+                          timeout,
+                          max_retries,
+                          retries_remaining,
+                          data,
+                          state,
+                          updated_at,
+                          created_at,
+                          run_at
+                        )
+                        VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $7, $8)
+                        ON CONFLICT DO NOTHING"#,
+                )
+                .await
+                .map_err(|e| Error::Backend {
+                    message: e.to_string(),
+                    is_retryable: is_retryable(e),
+                })?,
+            EnqueueMode::Replace => transaction
+                .prepare_cached(
+                    r#"INSERT INTO jobs (
+                          id,
+                          queue,
+                          timeout,
+                          max_retries,
+                          retries_remaining,
+                          data,
+                          state,
+                          updated_at,
+                          created_at,
+                          run_at
+                        )
+                        VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $7, $8)
+                        ON CONFLICT UPDATE SET
+                        timeout = EXCLUDED.timeout,
+                        max_retries = EXCLUDED.max_retries,
+                        retries_remaining = EXCLUDED.max_retries,
+                        data = EXCLUDED.data,
+                        state = EXCLUDED.state,
+                        updated_at = EXCLUDED.updated_at,
+                        run_at = EXCLUDED.run_at,
+                        in_flight = false"#,
+                )
+                .await
+                .map_err(|e| Error::Backend {
+                    message: e.to_string(),
+                    is_retryable: is_retryable(e),
+                })?,
+        };
+
+        let mut counts = HashMap::new();
+
+        for job in jobs {
+            let now = Utc::now().naive_utc();
+            let run_at = if let Some(run_at) = job.run_at {
+                run_at.naive_utc()
+            } else {
+                now
+            };
+
+            transaction
+                .execute(
+                    &stmt,
+                    &[
+                        &job.id,
+                        &job.queue,
+                        &Interval::from_duration(chrono::Duration::seconds(i64::from(job.timeout))),
+                        &job.max_retries.unwrap_or(-1),
+                        &job.payload,
+                        &job.state,
+                        &now,
+                        &run_at,
+                    ],
+                )
+                .await
+                .map_err(|e| {
+                    if let Some(&SqlState::UNIQUE_VIOLATION) = e.code() {
+                        Error::JobExists {
+                            job_id: job.id.to_string(),
+                            queue: job.queue.to_string(),
+                        }
+                    } else {
+                        Error::Backend {
+                            message: e.to_string(),
+                            is_retryable: is_retryable(e),
+                        }
+                    }
+                })?;
+
+            match counts.entry(job.queue) {
+                Entry::Occupied(mut o) => *o.get_mut() += 1,
+                Entry::Vacant(v) => {
+                    v.insert(1);
+                }
+            };
+        }
+
+        transaction.commit().await.map_err(|e| Error::Backend {
+            message: e.to_string(),
+            is_retryable: is_retryable(e),
+        })?;
+
+        for (queue, count) in counts {
+            counter!("enqueued", count, "queue" => queue.to_string());
+        }
+
+        debug!("enqueued jobs");
+        Ok(())
     }
 }
 

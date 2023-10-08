@@ -9,6 +9,7 @@ use tokio::sync::oneshot;
 use tracing::{debug, error, info};
 use tracing_subscriber::EnvFilter;
 
+use relay_backend_postgres::PgStore;
 #[cfg(unix)]
 use tokio::signal::unix::{signal, SignalKind};
 
@@ -118,7 +119,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 #[cfg(feature = "backend-postgres")]
-async fn init_postgres(opts: &Opts) -> anyhow::Result<impl Backend<Vec<u8>, Vec<u8>>> {
+async fn init_postgres(opts: &Opts) -> anyhow::Result<PgStore> {
     relay_backend_postgres::PgStore::new(&opts.database_url, opts.database_max_connections).await
 }
 

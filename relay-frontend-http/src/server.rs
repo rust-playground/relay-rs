@@ -5,6 +5,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, head, patch, post, put};
 use axum::{Json, Router};
 use metrics::increment_counter;
+use relay_backend_postgres::{EnqueueMode, NewJob, PgStore};
 use relay_core::{Backend, Error, Job};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -97,53 +98,59 @@ pub struct Server;
 //     }
 // }
 
-#[derive(Deserialize)]
-struct Jobs(Vec<Job<Box<RawValue>, Box<RawValue>>>);
-
-impl From<Jobs> for Vec<Job<Vec<u8>, Vec<u8>>> {
-    fn from(value: Jobs) -> Self {
-        value
-            .0
-            .into_iter()
-            .map(|j| Job {
-                id: j.id,
-                queue: j.queue,
-                timeout: j.timeout,
-                max_retries: j.max_retries,
-                payload: j.payload.get().as_bytes().to_vec(),
-                state: j.state.map(|s| s.get().as_bytes().to_vec()),
-                run_at: j.run_at,
-                updated_at: j.updated_at,
-            })
-            .collect()
-    }
-}
+// #[derive(Deserialize)]
+// struct Jobs(Vec<Job<Box<RawValue>, Box<RawValue>>>);
+//
+// impl From<Jobs> for Vec<Job<Vec<u8>, Vec<u8>>> {
+//     fn from(value: Jobs) -> Self {
+//         value
+//             .0
+//             .into_iter()
+//             .map(|j| Job {
+//                 id: j.id,
+//                 queue: j.queue,
+//                 timeout: j.timeout,
+//                 max_retries: j.max_retries,
+//                 payload: j.payload.get().as_bytes().to_vec(),
+//                 state: j.state.map(|s| s.get().as_bytes().to_vec()),
+//                 run_at: j.run_at,
+//                 updated_at: j.updated_at,
+//             })
+//             .collect()
+//     }
+// }
 
 #[tracing::instrument(name = "http_enqueue", level = "debug", skip_all)]
-async fn enqueue<BE>(State(state): State<Arc<BE>>, jobs: Json<Jobs>) -> Response
-where
-    BE: Backend<Vec<u8>, Vec<u8>>,
-{
+async fn enqueue(
+    State(state): State<Arc<PgStore>>,
+    jobs: Json<Vec<Job<Box<RawValue>, Box<RawValue>>>>,
+) -> Response {
     increment_counter!("http_request", "endpoint" => "enqueue");
 
-    let input: Vec<Job<Vec<u8>, Vec<u8>>> = jobs.0.into();
-    // let input: Vec<Job<Vec<u8>, Vec<u8>>> = jobs
-    //     .0
-    //      .0
-    //     .into_iter()
-    //     .map(|j| Job {
-    //         id: j.id,
-    //         queue: j.queue,
-    //         timeout: j.timeout,
-    //         max_retries: j.max_retries,
-    //         payload: j.payload.get().as_bytes().to_vec(),
-    //         state: j.state.map(|s| s.get().as_bytes().to_vec()),
-    //         run_at: j.run_at,
-    //         updated_at: j.updated_at,
-    //     })
-    //     .collect();
+    // let input: Vec<Job<Vec<u8>, Vec<u8>>> = jobs.0.into();
+    let input: Vec<NewJob> = jobs
+        .0
+        .iter()
+        .map(|j| NewJob {
+            id: &j.id,
+            queue: &j.queue,
+            timeout: j.timeout,
+            max_retries: if j.max_retries == -1 {
+                // temporary until client updated
+                None
+            } else {
+                Some(j.max_retries)
+            },
+            payload: j.payload.get().as_bytes(),
+            state: j.state.as_ref().map(|s| s.get().as_bytes()),
+            run_at: j.run_at,
+        })
+        .collect();
 
-    if let Err(e) = state.enqueue(&input).await {
+    if let Err(e) = state
+        .enqueue_new(EnqueueMode::Unique, &input.as_slice())
+        .await
+    {
         increment_counter!("errors", "endpoint" => "enqueue", "type" => e.error_type());
         match e {
             Error::Backend { .. } => {
@@ -313,9 +320,8 @@ impl Server {
     /// Will panic the reaper async thread fails, which can only happen if the timer and channel
     /// both die.
     #[inline]
-    pub async fn run<BE, F>(backend: Arc<BE>, addr: &str, shutdown: F) -> anyhow::Result<()>
+    pub async fn run<F>(backend: Arc<PgStore>, addr: &str, shutdown: F) -> anyhow::Result<()>
     where
-        BE: Backend<Vec<u8>, Vec<u8>> + Send + Sync + 'static,
         F: Future<Output = ()>,
     {
         let app = Server::init_app(backend);
@@ -328,10 +334,20 @@ impl Server {
         Ok(())
     }
 
-    pub(crate) fn init_app<BE>(backend: Arc<BE>) -> Router
-    where
-        BE: Backend<Vec<u8>, Vec<u8>> + Send + Sync + 'static,
-    {
+    pub(crate) fn init_app(backend: Arc<PgStore>) -> Router {
+        // TODO: Can in-flight be replaced with the run_id, where NULL = in-flight = false, else true
+        //
+        // POST /v1/queues/jobs - accept optional query param for mode of operation?
+        // - POST is interesting as it has different modes of operation:
+        //   - (Default behaviour) Unique enqueue, error on duplicate(first one encountered, entire transaction aborted.
+        //   - Do nothing if already exists.
+        //   - Replace if already exists - This is exactly like PUT/reschedule except queue and job id can't be changed.
+        //
+        // GET  /v1/queues/:queue/jobs/:id
+        // HEAD /v1/queues/:queue/jobs/:id
+        // PUT  /v1/queues/:queue/jobs/:id - Accepts entire Job, allowing rescheduling into different queue even if desired.
+        // DELETE /v1/queues/:queue/jobs/:id
+        // PATCH /v1/queues/:queue/jobs/:id - updates state + updated_at + expires_at only
         Router::new()
             .route("/v1/queues/jobs", post(enqueue))
             // .route("/v1/queues/jobs", put(reschedule))
