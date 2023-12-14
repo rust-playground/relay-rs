@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.3] - 2023-12-13
+### Fixed
+- version not incremented in Cargo.toml.
+
 ## [0.14.2] - 2023-12-13
 ### Fixed
 - `to_processing` metric using wrong `updated_at`.
@@ -141,8 +145,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Future Job support using new `run_at` Job field.
 - Reschedule endpoint allowing the Job Runner to manage a unique/singleton Job rescheduling itself.
 
-[Unreleased]: https://github.com/rust-playground/relay-rs/compare/v0.14.2...HEAD
-[0.14.2]: https://github.com/rust-playground/relay-rs/compare/v0.14.1...v0.14.2
+[Unreleased]: https://github.com/rust-playground/relay-rs/compare/v0.14.3...HEAD
+[0.14.3]: https://github.com/rust-playground/relay-rs/compare/v0.14.2...v0.14.3
+[0.14.2]: https://github.com/rust-playground/relay-rs/compare/v0.14.2...v0.14.2
 [0.14.1]: https://github.com/rust-playground/relay-rs/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/rust-playground/relay-rs/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/rust-playground/relay-rs/compare/v0.12.1...v0.13.0
