@@ -1,3 +1,10 @@
+
+## ⚠️ Deprecation Notice
+This version of Relay is to now be considered deprecated in favour of its new incarnation at the following
+location [here](https://github.com/relay-io/relay). It currently maintains backward compatibility with this 
+version.
+
+
 # relay-rs
 
 This contains a no nonsense, horizontally scalable, ordered job runner backed by Postgres.
