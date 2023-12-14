@@ -92,15 +92,13 @@ impl PgStore {
                 .with_no_client_auth()
         } else {
             let mut cert_store = RootCertStore::empty();
-            cert_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(
-                |ta| {
-                    OwnedTrustAnchor::from_subject_spki_name_constraints(
-                        ta.subject,
-                        ta.spki,
-                        ta.name_constraints,
-                    )
-                },
-            ));
+            cert_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
+                OwnedTrustAnchor::from_subject_spki_name_constraints(
+                    ta.subject,
+                    ta.spki,
+                    ta.name_constraints,
+                )
+            }));
 
             if accept_invalid_hostnames {
                 let verifier = WebPkiVerifier::new(cert_store, None);
@@ -185,7 +183,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
 
             let stmt = client
                 .prepare_cached(
-                    r#"INSERT INTO jobs (
+                    r"INSERT INTO jobs (
                           id,
                           queue,
                           timeout,
@@ -197,7 +195,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                           created_at,
                           run_at
                         )
-                        VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $7, $8)"#,
+                        VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $7, $8)",
                 )
                 .await
                 .map_err(|e| Error::Backend {
@@ -247,7 +245,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
 
             let stmt = transaction
                 .prepare_cached(
-                    r#"INSERT INTO jobs (
+                    r"INSERT INTO jobs (
                           id,
                           queue,
                           timeout,
@@ -260,7 +258,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                           run_at
                         )
                         VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $7, $8)
-                        ON CONFLICT DO NOTHING"#,
+                        ON CONFLICT DO NOTHING",
                 )
                 .await
                 .map_err(|e| Error::Backend {
@@ -335,7 +333,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
 
         let stmt = client
             .prepare_cached(
-                r#"
+                r"
                SELECT id,
                       queue,
                       timeout,
@@ -348,7 +346,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                WHERE
                     queue=$1 AND
                     id=$2
-            "#,
+            ",
             )
             .await
             .map_err(|e| Error::Backend {
@@ -384,13 +382,13 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
         })?;
         let stmt = client
             .prepare_cached(
-                r#"
+                r"
                 DELETE FROM jobs
                 WHERE
                     queue=$1 AND
                     id=$2
                 RETURNING run_at
-            "#,
+            ",
             )
             .await
             .map_err(|e| Error::Backend {
@@ -438,7 +436,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
 
         let stmt = client
             .prepare_cached(
-                r#"
+                r"
                UPDATE jobs
                SET state=$3,
                    updated_at=NOW(),
@@ -448,7 +446,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                    id=$2 AND
                    in_flight=true
                RETURNING (SELECT run_at FROM jobs WHERE queue=$1 AND id=$2 AND in_flight=true)
-            "#,
+            ",
             )
             .await
             .map_err(|e| Error::Backend {
@@ -500,13 +498,13 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
 
         let stmt = client
             .prepare_cached(
-                r#"
+                r"
                     SELECT EXISTS (
                         SELECT 1 FROM jobs WHERE
                             queue=$1 AND
                             id=$2
                     )
-                "#,
+                ",
             )
             .await
             .map_err(|e| Error::Backend {
@@ -547,11 +545,12 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
         // https://github.com/feikesteenbergen/demos/blob/19522f66ffb6eb358fe2d532d9bdeae38d4e2a0b/bugs/update_from_correlated.adoc
         let stmt = client
             .prepare_cached(
-                r#"
+                r"
                WITH subquery AS (
                    SELECT
                         id,
-                        queue
+                        queue,
+                        updated_at
                    FROM jobs
                    WHERE
                         queue=$1 AND
@@ -576,8 +575,9 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                          j.data,
                          j.state,
                          j.run_at,
-                         j.updated_at
-            "#,
+                         j.updated_at,
+                         subquery.updated_at as subquery_updated_at
+            ",
             )
             .await
             .map_err(|e| Error::Backend {
@@ -585,10 +585,8 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                 is_retryable: is_retryable(e),
             })?;
 
-        let limit = match i64::try_from(num_jobs) {
-            Ok(n) => n,
-            Err(_) => i64::MAX,
-        };
+        let now = Utc::now();
+        let limit = i64::from(num_jobs);
         let params: Vec<&(dyn ToSql + Sync)> = vec![&queue, &limit];
         let stream = client
             .query_raw(&stmt, params)
@@ -614,24 +612,26 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                 message: e.to_string(),
                 is_retryable: is_retryable(e),
             })?;
-            jobs.push(row_to_job(&row));
+            let j = row_to_job(&row);
+
+            let updated_at = Utc.from_utc_datetime(&row.get(8));
+            // using updated_at because this handles:
+            // - enqueue -> processing
+            // - reschedule -> processing
+            // - reaped -> processing
+            // This is a possible indicator not enough consumers/processors on the calling side
+            // and jobs are backed up processing.
+            if let Ok(d) = (now - updated_at).to_std() {
+                histogram!("latency", d, "queue" => j.queue.clone(), "type" => "to_processing");
+            }
+
+            jobs.push(j);
         }
 
         if jobs.is_empty() {
             debug!("fetched no jobs");
             Ok(None)
         } else {
-            for job in &jobs {
-                // using updated_at because this handles:
-                // - enqueue -> processing
-                // - reschedule -> processing
-                // - reaped -> processing
-                // This is a possible indicator not enough consumers/processors on the calling side
-                // and jobs are backed up processing.
-                if let Ok(d) = (Utc::now() - job.updated_at.unwrap()).to_std() {
-                    histogram!("latency", d, "queue" => job.queue.clone(), "type" => "to_processing");
-                }
-            }
             counter!("fetched", jobs.len() as u64, "queue" => queue.to_owned());
             debug!(fetched_jobs = jobs.len(), "fetched next job(s)");
             Ok(Some(jobs))
@@ -663,7 +663,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
 
         let stmt = client
             .prepare_cached(
-                r#"
+                r"
                 UPDATE jobs
                 SET
                     timeout = $3,
@@ -679,7 +679,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                     id=$2 AND
                     in_flight=true
                 RETURNING (SELECT run_at FROM jobs WHERE queue=$1 AND id=$2 AND in_flight=true)
-                "#,
+                ",
             )
             .await
             .map_err(|e| Error::Backend {
@@ -740,10 +740,10 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
 
         let stmt = client
             .prepare_cached(
-                r#"
+                r"
             UPDATE internal_state
             SET last_run=NOW()
-            WHERE last_run <= NOW() - $1::text::interval"#,
+            WHERE last_run <= NOW() - $1::text::interval",
             )
             .await
             .map_err(|e| Error::Backend {
@@ -777,7 +777,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
 
         let stmt = client
             .prepare_cached(
-                r#"
+                r"
                WITH cte_max_retries AS (
                     UPDATE jobs
                         SET in_flight=false,
@@ -806,7 +806,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                          FROM cte_no_max_retries
                      ) as grouped
                 GROUP BY queue
-            "#,
+            ",
             )
             .await
             .map_err(|e| Error::Backend {
@@ -836,7 +836,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
 
         let stmt = client
             .prepare_cached(
-                r#"
+                r"
                WITH cte_updates AS (
                    DELETE FROM jobs
                    WHERE
@@ -848,7 +848,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                SELECT queue, COUNT(queue)
                FROM cte_updates
                GROUP BY queue
-            "#,
+            ",
             )
             .await
             .map_err(|e| Error::Backend {
@@ -1003,9 +1003,7 @@ impl ServerCertVerifier for NoHostnameTlsVerifier {
             ocsp_response,
             now,
         ) {
-            Err(rustls::Error::InvalidCertificate(cert_error))
-                if cert_error == rustls::CertificateError::NotValidForName =>
-            {
+            Err(rustls::Error::InvalidCertificate(rustls::CertificateError::NotValidForName)) => {
                 Ok(ServerCertVerified::assertion())
             }
             res => res,
