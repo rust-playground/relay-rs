@@ -586,7 +586,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
             })?;
 
         let now = Utc::now();
-        let limit = i64::try_from(num_jobs).unwrap_or(i64::MAX);
+        let limit = i64::from(num_jobs);
         let params: Vec<&(dyn ToSql + Sync)> = vec![&queue, &limit];
         let stream = client
             .query_raw(&stmt, params)
