@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.2] - 2023-12-13
+### Fixed
+- `to_processing` metric using wrong `updated_at`.
+
+### Added
+- Deprecation notice to README.
+
 ## [0.14.1] - 2023-06-02
 ### Fixed
 - created_at being updated when rescheduling a Job, only updated_at should/needs to be for metrics reporting.

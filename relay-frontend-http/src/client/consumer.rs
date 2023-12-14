@@ -1,4 +1,5 @@
 use crate::client::Client;
+use anyhow::Context;
 use async_channel::{Receiver, Sender};
 use relay_core::{Job, Worker};
 use serde::de::DeserializeOwned;
@@ -97,7 +98,7 @@ where
 
         task::spawn(self.poller(cancel, tx_sem, tx))
             .await
-            .expect("spawned task failure")?;
+            .context("spawned task failure")??;
 
         for handle in handles {
             handle.await?;
@@ -129,7 +130,7 @@ where
                 }
 
                 let jobs = select! {
-                  _ = &mut cancel => {
+                  () = &mut cancel => {
                         break 'outer;
                     },
                     res = client.poll::<P, S>(&queue, num_jobs) => res?

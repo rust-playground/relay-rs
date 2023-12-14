@@ -21,6 +21,10 @@ pub struct Builder {
 
 impl Builder {
     /// Initializes a new Builder with sane defaults to create a custom `Client`
+    ///
+    /// # Panics
+    ///
+    /// If internal configuration of the `reqwest::Client` is invalid.
     #[must_use]
     pub fn new(url: &str) -> Self {
         let next_backoff = ExponentialBackoffBuilder::default()
