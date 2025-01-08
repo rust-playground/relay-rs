@@ -6,7 +6,7 @@ use deadpool_postgres::{
     ClientWrapper, GenericClient, Hook, HookError, HookErrorCause, Manager, ManagerConfig, Pool,
     PoolError, RecyclingMethod,
 };
-use metrics::{counter, histogram, increment_counter};
+use metrics::{counter, histogram};
 use pg_interval::Interval;
 use relay_core::{Backend, Error, Job, Result};
 use rustls::client::{ServerCertVerified, ServerCertVerifier, WebPkiVerifier};
@@ -231,7 +231,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                         }
                     }
                 })?;
-            increment_counter!("enqueued", "queue" => job.queue.clone());
+            counter!("enqueued", "queue" => job.queue.clone()).increment(1);
         } else {
             let mut counts = HashMap::new();
             let mut client = self.pool.get().await.map_err(|e| Error::Backend {
@@ -310,7 +310,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
             })?;
 
             for (queue, count) in counts {
-                counter!("enqueued", count, "queue" => queue);
+                counter!("enqueued", "queue" => queue).increment(count);
             }
         }
         debug!("enqueued jobs");
@@ -364,7 +364,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
 
         let job = row.as_ref().map(row_to_job);
 
-        increment_counter!("get", "queue" => queue.to_owned());
+        counter!("get", "queue" => queue.to_owned()).increment(1);
         debug!("got job");
         Ok(job)
     }
@@ -406,10 +406,10 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
         if let Some(row) = row {
             let run_at = Utc.from_utc_datetime(&row.get(0));
 
-            increment_counter!("deleted", "queue" => queue.to_owned());
+            counter!("deleted", "queue" => queue.to_owned()).increment(1);
 
             if let Ok(d) = (Utc::now() - run_at).to_std() {
-                histogram!("duration", d, "queue" => queue.to_owned(), "type" => "deleted");
+                histogram!("duration",  "queue" => queue.to_owned(), "type" => "deleted").record(d);
             }
             debug!("deleted job");
         }
@@ -468,10 +468,10 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
         if let Some(row) = row {
             let run_at = Utc.from_utc_datetime(&row.get(0));
 
-            increment_counter!("heartbeat", "queue" => queue.to_owned());
+            counter!("heartbeat", "queue" => queue.to_owned()).increment(1);
 
             if let Ok(d) = (Utc::now() - run_at).to_std() {
-                histogram!("duration", d, "queue" => queue.to_owned(), "type" => "running");
+                histogram!("duration",  "queue" => queue.to_owned(), "type" => "running").record(d);
             }
             debug!("heartbeat job");
             Ok(())
@@ -521,7 +521,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
             })?
             .get(0);
 
-        increment_counter!("exists", "queue" => queue.to_owned());
+        counter!("exists", "queue" => queue.to_owned()).increment(1);
         debug!("exists check job");
         Ok(exists)
     }
@@ -627,7 +627,8 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
             // This is a possible indicator not enough consumers/processors on the calling side
             // and jobs are backed up processing.
             if let Ok(d) = (now - to_processing).to_std() {
-                histogram!("latency", d, "queue" => j.queue.clone(), "type" => "to_processing");
+                histogram!("latency",  "queue" => j.queue.clone(), "type" => "to_processing")
+                    .record(d);
             }
 
             jobs.push(j);
@@ -637,7 +638,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
             debug!("fetched no jobs");
             Ok(None)
         } else {
-            counter!("fetched", jobs.len() as u64, "queue" => queue.to_owned());
+            counter!("fetched", "queue" => queue.to_owned()).increment(jobs.len() as u64);
             debug!(fetched_jobs = jobs.len(), "fetched next job(s)");
             Ok(Some(jobs))
         }
@@ -715,10 +716,11 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
         if let Some(row) = row {
             let run_at = Utc.from_utc_datetime(&row.get(0));
 
-            increment_counter!("rescheduled", "queue" => job.queue.clone());
+            counter!("rescheduled", "queue" => job.queue.clone()).increment(1);
 
             if let Ok(d) = (Utc::now() - run_at).to_std() {
-                histogram!("duration", d, "queue" => job.queue.clone(), "type" => "rescheduled");
+                histogram!("duration",  "queue" => job.queue.clone(), "type" => "rescheduled")
+                    .record(d);
             }
             debug!("rescheduled job");
             Ok(())
@@ -836,7 +838,8 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
             let queue: String = row.get(0);
             let count: i64 = row.get(1);
             debug!(queue = %queue, count = count, "retrying jobs");
-            counter!("retries", u64::try_from(count).unwrap_or_default(), "queue" => queue);
+            counter!("retries", "queue" => queue)
+                .increment(u64::try_from(count).unwrap_or_default());
         }
 
         let stmt = client
@@ -882,7 +885,8 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                 queue = %queue,
                 "deleted records from queue that reached their max retries"
             );
-            counter!("errors", u64::try_from(count).unwrap_or_default(), "queue" => queue, "type" => "max_retries");
+            counter!("errors", "queue" => queue, "type" => "max_retries")
+                .increment(u64::try_from(count).unwrap_or_default());
         }
         Ok(())
     }

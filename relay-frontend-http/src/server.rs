@@ -4,7 +4,7 @@ use axum::http::{Request, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, head, patch, post, put};
 use axum::{Json, Router};
-use metrics::increment_counter;
+use metrics::counter;
 use relay_core::{Backend, Error, Job};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -27,7 +27,7 @@ where
     T: Serialize,
     BE: Backend<T, T>,
 {
-    increment_counter!("http_request", "endpoint" => "get", "queue" => queue.clone());
+    counter!("http_request", "endpoint" => "get", "queue" => queue.clone()).increment(1);
 
     match state.get(&queue, &id).await {
         Ok(job) => {
@@ -38,7 +38,8 @@ where
             }
         }
         Err(e) => {
-            increment_counter!("errors", "endpoint" => "get", "type" => e.error_type(), "queue" => e.queue());
+            counter!("errors", "endpoint" => "get", "type" => e.error_type(), "queue" => e.queue())
+                .increment(1);
             match e {
                 Error::Backend { .. } => {
                     if e.is_retryable() {
@@ -61,7 +62,7 @@ async fn exists<BE, T>(
 where
     BE: Backend<T, T>,
 {
-    increment_counter!("http_request", "endpoint" => "exists", "queue" => queue.clone());
+    counter!("http_request", "endpoint" => "exists", "queue" => queue.clone()).increment(1);
 
     match state.exists(&queue, &id).await {
         Ok(exists) => {
@@ -72,7 +73,7 @@ where
             }
         }
         Err(e) => {
-            increment_counter!("errors", "endpoint" => "exists", "type" => e.error_type(), "queue" => e.queue());
+            counter!("errors", "endpoint" => "exists", "type" => e.error_type(), "queue" => e.queue()).increment(1);
             match e {
                 Error::Backend { .. } => {
                     if e.is_retryable() {
@@ -92,10 +93,10 @@ async fn enqueue<BE, T>(State(state): State<Arc<BE>>, jobs: Json<Vec<Job<T, T>>>
 where
     BE: Backend<T, T>,
 {
-    increment_counter!("http_request", "endpoint" => "enqueue");
+    counter!("http_request", "endpoint" => "enqueue").increment(1);
 
     if let Err(e) = state.enqueue(&jobs.0).await {
-        increment_counter!("errors", "endpoint" => "enqueue", "type" => e.error_type());
+        counter!("errors", "endpoint" => "enqueue", "type" => e.error_type()).increment(1);
         match e {
             Error::Backend { .. } => {
                 if e.is_retryable() {
@@ -134,11 +135,11 @@ where
     T: Serialize,
     BE: Backend<T, T>,
 {
-    increment_counter!("http_request", "endpoint" => "next", "queue" => queue.clone());
+    counter!("http_request", "endpoint" => "next", "queue" => queue.clone()).increment(1);
 
     match state.next(&queue, params.num_jobs).await {
         Err(e) => {
-            increment_counter!("errors", "endpoint" => "next", "type" => e.error_type(), "queue" => e.queue());
+            counter!("errors", "endpoint" => "next", "type" => e.error_type(), "queue" => e.queue()).increment(1);
             if let Error::Backend { .. } = e {
                 if e.is_retryable() {
                     (StatusCode::TOO_MANY_REQUESTS, e.to_string()).into_response()
@@ -166,14 +167,14 @@ where
     T: DeserializeOwned,
     BE: Backend<T, T>,
 {
-    increment_counter!("http_request", "endpoint" => "heartbeat", "queue" => queue.clone());
+    counter!("http_request", "endpoint" => "heartbeat", "queue" => queue.clone()).increment(1);
 
     let job_state = match job_state {
         None => None,
         Some(job_state) => Some(job_state.0),
     };
     if let Err(e) = state.heartbeat(&queue, &id, job_state).await {
-        increment_counter!("errors", "endpoint" => "heartbeat", "type" => e.error_type(), "queue" => e.queue());
+        counter!("errors", "endpoint" => "heartbeat", "type" => e.error_type(), "queue" => e.queue()).increment(1);
         match e {
             Error::JobNotFound { .. } => (StatusCode::NOT_FOUND, e.to_string()).into_response(),
             Error::Backend { .. } => {
@@ -197,10 +198,11 @@ async fn reschedule<BE, T>(State(state): State<Arc<BE>>, job: Json<Job<T, T>>) -
 where
     BE: Backend<T, T>,
 {
-    increment_counter!("http_request", "endpoint" => "reschedule", "queue" => job.0.queue.clone());
+    counter!("http_request", "endpoint" => "reschedule", "queue" => job.0.queue.clone())
+        .increment(1);
 
     if let Err(e) = state.reschedule(&job.0).await {
-        increment_counter!("errors", "endpoint" => "enqueued", "type" => e.error_type(), "queue" => e.queue());
+        counter!("errors", "endpoint" => "enqueued", "type" => e.error_type(), "queue" => e.queue()).increment(1);
         match e {
             Error::JobExists { .. } => {
                 (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
@@ -227,10 +229,11 @@ async fn delete_job<BE, T>(
 where
     BE: Backend<T, T>,
 {
-    increment_counter!("http_request", "endpoint" => "delete", "queue" => queue.clone());
+    counter!("http_request", "endpoint" => "delete", "queue" => queue.clone()).increment(1);
 
     if let Err(e) = state.delete(&queue, &id).await {
-        increment_counter!("errors", "endpoint" => "delete", "type" => e.error_type(), "queue" => e.queue());
+        counter!("errors", "endpoint" => "delete", "type" => e.error_type(), "queue" => e.queue())
+            .increment(1);
         match e {
             Error::JobNotFound { .. } => (StatusCode::NOT_FOUND, e.to_string()).into_response(),
             Error::Backend { .. } => {
