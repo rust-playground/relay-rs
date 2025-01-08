@@ -9,13 +9,13 @@ description.workspace = true
 
 [dependencies]
 relay-core.workspace = true
-relay-frontend-http = { version = "*", path = "../relay-frontend-http", optional = true}
-relay-backend-postgres = { version = "*", path = "../relay-backend-postgres", optional = true}
+relay-frontend-http = { version = "*", path = "../relay-frontend-http", optional = true }
+relay-backend-postgres = { version = "*", path = "../relay-backend-postgres", optional = true }
 tracing-subscriber = { version = "0.3.17", default-features = false, features = ["smallvec", "fmt", "env-filter", "tracing-log", "std"] }
-metrics-exporter-prometheus = { version = "0.12.1", optional = true }
+metrics-exporter-prometheus = { version = "0.15.3", optional = true }
 anyhow.workspace = true
 clap = { workspace = true, features = ["derive", "env"] }
-tokio = { workspace = true, features = ["rt-multi-thread", "net", "time","macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "time", "macros"] }
 metrics-util.workspace = true
 metrics.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
