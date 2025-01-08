@@ -22,14 +22,14 @@ pub(crate) async fn run_migrations(
 
     transaction
         .batch_execute(&format!(
-            r#"
+            r"
         SELECT pg_advisory_xact_lock(13);
         CREATE TABLE IF NOT EXISTS {table_name} (
             name         varchar NOT NULL,
             applied_at   timestamp without time zone NOT NULL,
             PRIMARY KEY (name)
         );
-        "#
+        "
         ))
         .await?;
 
