@@ -615,11 +615,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
             let j = row_to_job(&row);
 
             let updated_at = Utc.from_utc_datetime(&row.get(8));
-            let to_processing = if j.run_at.is_none() || updated_at > j.run_at.unwrap() {
-                updated_at
-            } else {
-                j.run_at.unwrap()
-            };
+            let to_processing = j.run_at.map_or(updated_at, |run_at| updated_at.max(run_at));
             // using updated_at because this handles:
             // - enqueue -> processing
             // - reschedule -> processing
@@ -763,10 +759,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                 &stmt,
                 &[&format!(
                     "{}s",
-                    match i64::try_from(interval_seconds) {
-                        Ok(n) => n,
-                        Err(_) => i64::MAX,
-                    }
+                    i64::try_from(interval_seconds).unwrap_or(i64::MAX)
                 )],
             )
             .await
@@ -1042,7 +1035,7 @@ mod tests {
             run_at: None,
             updated_at: None,
         };
-        store.enqueue(&[job.clone()]).await?;
+        store.enqueue(std::slice::from_ref(&job)).await?;
 
         let next_job = store.next(&queue, 1).await?;
         assert!(next_job.is_some());
@@ -1072,7 +1065,7 @@ mod tests {
             run_at: Some(run_at),
             updated_at: None,
         };
-        store.enqueue(&[job.clone()]).await?;
+        store.enqueue(std::slice::from_ref(&job)).await?;
 
         let exists = store.exists(&queue, &job_id).await?;
         assert!(exists);
@@ -1117,7 +1110,7 @@ mod tests {
             run_at: None,
             updated_at: None,
         };
-        store.enqueue(&[job.clone()]).await?;
+        store.enqueue(std::slice::from_ref(&job)).await?;
 
         let next_job = store.next(&queue, 1).await?;
         assert!(next_job.is_some());
@@ -1153,7 +1146,7 @@ mod tests {
             run_at: None,
             updated_at: None,
         };
-        store.enqueue(&[job.clone()]).await?;
+        store.enqueue(std::slice::from_ref(&job)).await?;
 
         let next_job = store.next(&queue, 1).await?;
         assert!(next_job.is_some());
