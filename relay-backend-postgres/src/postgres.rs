@@ -301,7 +301,7 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
                     Entry::Vacant(v) => {
                         v.insert(1);
                     }
-                };
+                }
             }
 
             transaction.commit().await.map_err(|e| Error::Backend {
@@ -723,8 +723,8 @@ impl Backend<Box<RawValue>, Box<RawValue>> for PgStore {
         } else {
             debug!("job not found");
             Err(Error::JobNotFound {
-                job_id: job.id.to_string(),
-                queue: job.queue.to_string(),
+                job_id: job.id.clone(),
+                queue: job.queue.clone(),
             })
         }
     }

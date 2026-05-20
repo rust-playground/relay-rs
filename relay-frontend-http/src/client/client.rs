@@ -40,10 +40,10 @@ impl Builder {
             .build();
 
         let client = reqwest::ClientBuilder::default()
-            .timeout(Duration::from_secs(60))
+            .timeout(Duration::from_mins(1))
             .connect_timeout(Duration::from_secs(10))
-            .tcp_keepalive(Duration::from_secs(60))
-            .http2_keep_alive_timeout(Duration::from_secs(60))
+            .tcp_keepalive(Duration::from_mins(1))
+            .http2_keep_alive_timeout(Duration::from_mins(1))
             .http2_keep_alive_interval(Duration::from_secs(5))
             .http2_keep_alive_while_idle(true)
             .pool_max_idle_per_host(512)
@@ -96,7 +96,7 @@ impl Builder {
     pub fn build(self) -> Client {
         Client {
             url: self.url,
-            client: self.client,
+            http: self.client,
             poll_backoff: self.poll_backoff,
             retry_backoff: self.retry_backoff,
             max_retries: self.max_retries,
@@ -107,7 +107,7 @@ impl Builder {
 /// Relay HTTP Client.
 pub struct Client {
     url: String,
-    client: reqwest::Client,
+    http: reqwest::Client,
     poll_backoff: Exponential,
     retry_backoff: Exponential,
     max_retries: Option<usize>,
@@ -129,7 +129,7 @@ impl Client {
         let url = format!("{}/v1/queues/jobs", self.url);
 
         self.with_retry(|| async {
-            let res = self.client.post(&url).json(&[job]).send().await?;
+            let res = self.http.post(&url).json(&[job]).send().await?;
             let status_code = res.status();
 
             if status_code == StatusCode::ACCEPTED {
@@ -164,7 +164,7 @@ impl Client {
         let url = format!("{}/v1/queues/jobs", self.url);
 
         self.with_retry(|| async {
-            let res = self.client.post(&url).json(jobs).send().await?;
+            let res = self.http.post(&url).json(jobs).send().await?;
             let status_code = res.status();
 
             if status_code == StatusCode::ACCEPTED {
@@ -196,7 +196,7 @@ impl Client {
         let url = format!("{}/v1/queues/{queue}/jobs/{job_id}", self.url);
 
         self.with_retry(|| async {
-            let res = self.client.delete(&url).send().await?;
+            let res = self.http.delete(&url).send().await?;
             let status_code = res.status();
 
             if status_code == StatusCode::OK {
@@ -225,7 +225,7 @@ impl Client {
         let url = format!("{}/v1/queues/{queue}/jobs/{job_id}", self.url);
 
         self.with_retry(|| async {
-            let res = self.client.head(&url).send().await?;
+            let res = self.http.head(&url).send().await?;
 
             match res.status() {
                 StatusCode::OK => Ok(true),
@@ -261,7 +261,7 @@ impl Client {
         let url = format!("{}/v1/queues/{queue}/jobs/{job_id}", self.url);
 
         self.with_retry(|| async {
-            let res = self.client.get(&url).send().await?;
+            let res = self.http.get(&url).send().await?;
             let status_code = res.status();
 
             if status_code == StatusCode::OK {
@@ -295,7 +295,7 @@ impl Client {
         let url = format!("{}/v1/queues/{queue}/jobs?num_jobs={num_jobs}", self.url);
 
         self.with_retry(|| async {
-            let res = self.client.get(&url).send().await?;
+            let res = self.http.get(&url).send().await?;
 
             match res.status() {
                 StatusCode::OK => Ok(res.json().await?),
@@ -336,7 +336,7 @@ impl Client {
         let url = format!("{}/v1/queues/{queue}/jobs/{job_id}", self.url);
 
         self.with_retry(|| async {
-            let mut request = self.client.patch(&url);
+            let mut request = self.http.patch(&url);
 
             if let Some(state) = &state {
                 request = request.json(state);
@@ -373,7 +373,7 @@ impl Client {
     {
         let url = format!("{}/v1/queues/jobs", self.url);
         self.with_retry(|| async {
-            let res = self.client.put(&url).json(job).send().await?;
+            let res = self.http.put(&url).json(job).send().await?;
             let status_code = res.status();
 
             if status_code == StatusCode::ACCEPTED {
