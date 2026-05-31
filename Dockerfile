@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:experimental
 
-FROM rust:slim-buster as builder
+FROM rust:slim-bookworm as builder
 WORKDIR /src
 
 COPY . .
@@ -10,7 +10,7 @@ RUN --mount=type=cache,target=target \
     && cargo build -p relay --features metrics-prometheus --release \
     && mv target/release/relay /out/relay
 
-FROM debian:buster-slim
+FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates libc6 && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /out/relay /usr/local/bin/relay
 CMD ["relay"]
