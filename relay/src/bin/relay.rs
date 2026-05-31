@@ -54,7 +54,7 @@ async fn main() -> anyhow::Result<()> {
                 env::set_var("RUST_LOG", "info");
             }
         }
-    };
+    }
 
     // install global collector configured based on RUST_LOG env var.
     let (non_blocking, _guard) = tracing_appender::non_blocking(std::io::stdout());
@@ -68,7 +68,7 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "metrics-prometheus")]
     metrics_exporter_prometheus::PrometheusBuilder::new()
         .with_http_listener(
-            format!("0.0.0.0:{}", &opts.metrics_port)
+            format!("0.0.0.0:{}", opts.metrics_port)
                 .parse::<std::net::SocketAddr>()
                 .context("invalid prometheus address")?,
         )

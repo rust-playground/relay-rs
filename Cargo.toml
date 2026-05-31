@@ -6,6 +6,7 @@ members = [
     "relay-frontend-http",
     "relay-backend-postgres",
 ]
+resolver = "3"
 
 [workspace.package]
 edition = "2021"
@@ -28,7 +29,7 @@ metrics = "0.24.5"
 percent-encoding = "2.3.0"
 async-channel = "1.9.0"
 async-trait = "0.1.74"
-anydate = "0.3.0"
+anydate = "0.5.0"
 metrics-util = "0.20.3"
 log = "0.4.20"
 relay-core = { version = "*", path = "./relay-core" }
