@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-05-031
+
+### Fixed
+
+- fixed build and lint errors.
+
 ## [0.15.0] - 2024-01-07
 
 ### Fixed
@@ -215,6 +221,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reschedule endpoint allowing the Job Runner to manage a unique/singleton Job rescheduling itself.
 
 [Unreleased]: https://github.com/rust-playground/relay-rs/compare/v0.14.4...HEAD
+
+[0.16.0]: https://github.com/rust-playground/relay-rs/compare/v0.15.0...v0.16.0
 
 [0.15.0]: https://github.com/rust-playground/relay-rs/compare/v0.14.4...v0.15.0
 
